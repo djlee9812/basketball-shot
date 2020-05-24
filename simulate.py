@@ -12,7 +12,7 @@ kg2lb = 2.20462 # [lb/kg]
 g = 32.174 # 9.81 * m2ft # [ft/s^2]
 g_eff = g * .985 # Effective gravity after 1.5% buoyancy force
 rho = 0.0764 # 1.225 * kg2lb / m2ft**3 # Air Density [lb/ft^3]
-dt = 0.01 # Integrator time step [sec]
+dt = 0.002 # Integrator time step [sec]
 # NBA court dimensions
 court_l = 94
 court_w = 50
@@ -31,6 +31,7 @@ bb_l = 6 # Backboard width 6ft
 bb_h = 3.5 # Backboard height 3.5ft
 bb_z_bot = 9 # Backboard bottom z coord
 bb_z_top = bb_z_bot + bb_h # backboard top z coord
+bb_x = -rim_r - rim_bb_dist # backboard x coordinate
 # Ball
 ball_r = 29.5 / 12 / (2 * np.pi) # 29.5" circumference
 ball_m = 0.620 * kg2lb # Weight (567-650g - Wikipedia) [grams]
@@ -48,6 +49,8 @@ class Ball:
         self.states = []
         self.score = False
         self.end = False
+        self.ground = np.zeros(5)
+        self.bb = np.zeros(5)
         self.shot()
 
     def shot(self):
@@ -59,7 +62,7 @@ class Ball:
         x, y, z = self.position
         ratio = x/y if y != 0 else np.inf
         theta0 = np.arctan(ratio)
-        theta = theta0 + self.theta
+        theta = theta0 - self.theta
         vx = -self.speed * np.cos(self.phi) * np.sin(theta)
         vy = self.speed * np.cos(self.phi) * np.cos(theta)
         vz = self.speed * np.sin(self.phi)
@@ -67,7 +70,7 @@ class Ball:
         # Save ICs in state vector
         self.states.append(ics)
         nit = 0
-        while not self.end and nit < 1000:
+        while not self.end and nit < 2000:
             derivs = self.dynamics()
             self.integrate(derivs)
             self.check_end()
@@ -81,26 +84,67 @@ class Ball:
         :params x: State variable vector
             position, velocity
         """
-        x, y, z, u, v, w = self.states[-1]
+        x, y, z, vx, vy, vz = self.states[-1]
         # dx/dt = v
-        dx, dy, dz = (u, v, w)
-        v = np.linalg.norm((u,v,w))
+        dx, dy, dz = (vx, vy, vz)
+        speed = np.linalg.norm([vx, vy, vz])
         # Gravity + buoyancy (z)
         Fg = -ball_m * g_eff
         # Drag (-v)
-        Fd = 0.5 * ball_cd * rho * v**2 * (np.pi*ball_r**2)
+        Fd = 0.5 * ball_cd * rho * speed**2 * (np.pi*ball_r**2)
 
         # Magnus (omega x v)
         # Fm = 16 / 3 * np.pi**2 * ball_r**3 * rho * omega * v
 
-        return [dx, dy, dz, 0, 0, Fg/ball_m]
+        dvx = 0
+        dvy = 0
+        dvz = Fg/ball_m
+        Fcoll = self.collision()
+        if np.count_nonzero(Fcoll) > 0:
+            dvx, dvy, dvz = Fcoll / ball_m
+
+        return [dx, dy, dz, dvx, dvy, dvz]
 
     def collision(self):
-        """ Calculate projection distance from ball to other objects and if
-        dist < ball_r + margin(dt, v), where margin is dependent on time step, dt,
-        and speed v
+        """ Calculate impulse force from collision
         """
-        pass
+        x, y, z, vx, vy, vz = self.states[-1]
+        speed = np.linalg.norm([vx, vy, vz])
+        delta_p = np.zeros(3)
+
+        self.bb = np.concatenate([self.bb[1:], [0]])
+        self.ground = np.concatenate([self.ground[1:], [0]])
+
+        if self.dist_to_bb() < ball_r and np.count_nonzero(self.bb) == 0:
+            # handle collision with backboard
+            self.bb[-1] = 1
+
+        if self.dist_to_rim() < ball_r:
+            # handle collision with rim
+            pass
+
+        if z <= ball_r and np.count_nonzero(self.ground) == 0:
+            delta_p[2] += (1 + ball_e1) * (-vz * ball_m)
+            self.ground[-1] = 1
+
+        return delta_p / dt
+
+    def dist_to_bb(self):
+        """ Calculate projection distance from ball to backboard
+        """
+        x, y, z, vx, vy, vz = self.states[-1]
+        dx = x - bb_x
+        dy = np.max([-bb_l/2 - y, 0, y - bb_l/2])
+        dz = np.max([bb_z_bot - z, 0, z - bb_z_bot])
+        return np.linalg.norm([dx, dy, dz])
+
+    def dist_to_rim(self):
+        """ Calculate projection distance from ball to rim
+        """
+        x, y, z, vx, vy, vz = self.states[-1]
+        planar_d = np.linalg.norm([x,y]) - rim_r
+        z_dist = z - 10
+        return np.linalg.norm([planar_d, z_dist])
 
     def integrate(self, derivs):
         state = self.states[-1]
@@ -108,26 +152,26 @@ class Ball:
         self.states.append(new_state)
 
     def check_end(self):
-        x, y, z, u, v, w = self.states[-1]
-        if z < 0 or x < -5 or np.abs(y) > court_w/2:
+        x, y, z, vx, vy, vz = self.states[-1]
+        if z < -1 or x < -5 or np.abs(y) > court_w/2:
             self.end = True
-
+        # TODO: Implement check condition for scoring
 
     def visualize(self):
         x, y, z = self.states[:,0:3].T
+        vx, vy, vz = self.states[:,3:6].T
         fig = plt.figure(figsize=(12,6))
         ax = fig.add_subplot(111, projection='3d')
         ax.plot(x, y, z)
         ax.scatter(x[0], y[0], z[0], color="orange", s=100)
 
-
         backboard = Rectangle((-bb_l/2, bb_z_bot), bb_l, bb_h, fill=False, linewidth=1)
         ax.add_patch(backboard)
-        art3d.pathpatch_2d_to_3d(backboard, z=-rim_r-rim_bb_dist, zdir="x")
+        art3d.pathpatch_2d_to_3d(backboard, z=bb_x, zdir="x")
 
         bb_box = Rectangle((-1, bb_z_bot+.5), 2, 1.5, fill=False, linewidth=1)
         ax.add_patch(bb_box)
-        art3d.pathpatch_2d_to_3d(bb_box, z=-rim_r-rim_bb_dist, zdir="x")
+        art3d.pathpatch_2d_to_3d(bb_box, z=bb_x, zdir="x")
 
         rim = Circle((0, 0), rim_r, fill=False, edgecolor="red", linewidth=1)
         ax.add_patch(rim)
@@ -165,8 +209,21 @@ class Ball:
 
         # ax.grid(None)
         plt.tight_layout()
+        # plt.show()
+
+        fig, (ax1, ax2) = plt.subplots(2, 1)
+        t = [dt*i for i in range(len(x))]
+        ax1.plot(t, x, label="x")
+        ax1.plot(t, y, label="y")
+        ax1.plot(t, z, label="z")
+        ax2.plot(t, vx, label="vx")
+        ax2.plot(t, vy, label="vy")
+        ax2.plot(t, vz, label="vz")
+        ax2.set_xlabel("Time")
+        ax1.legend()
+        ax2.legend()
         plt.show()
 
 
 if __name__ == "__main__":
-    ball = Ball(15, 0, 5.5, 26, 55, 0)
+    ball = Ball(15, 0, 5.5, 26, 80, 0)
