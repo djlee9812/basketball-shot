@@ -49,6 +49,7 @@ class Ball:
         self.states = []
         self.score = False
         self.end = False
+        # Queue for recent collisions with ground / backboard (avoid oscillations)
         self.ground = np.zeros(5)
         self.bb = np.zeros(5)
         self.shot()
@@ -112,12 +113,16 @@ class Ball:
         speed = np.linalg.norm([vx, vy, vz])
         delta_p = np.zeros(3)
 
+        # Shift collision backboard, ground queues
         self.bb = np.concatenate([self.bb[1:], [0]])
         self.ground = np.concatenate([self.ground[1:], [0]])
+        # If collision with backboard or ground in last 5 time steps: skip
 
         if self.dist_to_bb() < ball_r and np.count_nonzero(self.bb) == 0:
             # handle collision with backboard
+            delta_p[0] += (1 + ball_e2) * (-vx * ball_m)
             self.bb[-1] = 1
+            print("BB Bounce!")
 
         if self.dist_to_rim() < ball_r:
             # handle collision with rim
@@ -135,7 +140,7 @@ class Ball:
         x, y, z, vx, vy, vz = self.states[-1]
         dx = x - bb_x
         dy = np.max([-bb_l/2 - y, 0, y - bb_l/2])
-        dz = np.max([bb_z_bot - z, 0, z - bb_z_bot])
+        dz = np.max([bb_z_bot - z, 0, z - bb_z_top])
         return np.linalg.norm([dx, dy, dz])
 
     def dist_to_rim(self):
@@ -226,4 +231,4 @@ class Ball:
 
 
 if __name__ == "__main__":
-    ball = Ball(15, 0, 5.5, 26, 80, 0)
+    ball = Ball(15, 0, 5.5, 26, 50, 0)
