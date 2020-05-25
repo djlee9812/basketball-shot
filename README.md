@@ -2,6 +2,8 @@
 
 Dynamical simulation and visualization of a basketball shot given starting position, throw speed, launch angle, and deviation angle.
 
+![Image of 3 Point Shot](https://raw.githubusercontent.com/djlee9812/basketball-shot/master/demo.png)
+
 ## How to Use
 #### Initialize
 The Ball class contains all necessary methods for the dynamical simulation of the basketball shot as well as visualization of the shot trajectory and the basketball court. To use, simply initialize the object as follows and the code will run the dynamical simulation:
