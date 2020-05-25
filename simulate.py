@@ -8,11 +8,12 @@ plt.style.use('seaborn')
 # Constants (Imperial Units)
 ft2m = 0.3048 # [m/ft]
 m2ft = 1 / ft2m # [ft/m]
-kg2lb = 2.20462 # [lb/kg]
+kg2lb = 2.20462 # [lbm/kg]
 g = 32.174 # 9.81 * m2ft # [ft/s^2]
 g_eff = g * .985 # Effective gravity after 1.5% buoyancy force
-rho = 0.0764 # 1.225 * kg2lb / m2ft**3 # Air Density [lb/ft^3]
-dt = 0.002 # Integrator time step [sec]
+rho = 0.0764 # 1.225 * kg2lb / m2ft**3 # Air Density [lbm/ft^3]
+mu = 3.737e-7 # Dynamic viscosity [lbm * s/ft^2]
+timestep = 0.002 # Integrator time step [sec]
 # NBA court dimensions
 court_l = 94
 court_w = 50
@@ -37,15 +38,27 @@ ball_r = 29.5 / 12 / (2 * np.pi) # 29.5" circumference
 ball_m = 0.620 * kg2lb # Weight (567-650g - Wikipedia) [grams]
 ball_e1 = 0.84 # Coefficient of Restitution - Ground (v2/v1)
 ball_e2 = 0.65 # Coefficient of Restitution - Backboard/rim (v2/v1)
-ball_cd = 0.47 # Coefficient of drag
+ball_cd1 = 0.5 # Coefficient of drag (low Re)
+ball_cd2 = 0.2 # Coefficient of drag (Drag crisis)
 ball_contact_t = 0.01 # Impact time on contact [seconds]
 
 class Ball:
-    def __init__(self, x, y, z, v, phi, theta, debug=False):
-        self.position = [x,y,z]
-        self.speed = v
-        self.phi = np.radians(phi)
-        self.theta = np.radians(theta)
+    def __init__(self, x, y, z, v, phi, theta, omega, debug=False):
+        """ Initialize a basketball shot and show simulation results
+        :params x: Distance in front of rim [ft]
+        :params y: Distance to the right of rim while facing it [ft]
+        :params z: Distance from ground / shot height [ft]
+        :params v: Shot launch speed [ft/s]
+        :params phi: Shot launch angle from the horizontal [deg]
+        :params theta: Shot angle deviation to the side [deg]
+        :params omega: Backspin [revolution/second]
+        :params debug: Show time graphs if True
+        """
+        self.initial = {"position": [x,y,z],
+                       "speed": v,
+                       "phi": np.radians(phi),
+                       "theta": np.radians(theta),
+                       "omega": omega * 2 * np.pi}
         self.states = []
         self.score = False
         self.end = False
@@ -63,19 +76,21 @@ class Ball:
         horizontal launch deviation theta
         """
         # Get initial state in global hoop frame
-        x, y, z = self.position
+        x, y, z = self.initial["position"]
         # theta0 = angle to goal
         theta0 = np.arctan2(y, x)
         # theta = angle includingn launch deviation
-        theta = theta0 - self.theta
-        vx = -self.speed * np.cos(self.phi) * np.cos(theta)
-        vy = -self.speed * np.cos(self.phi) * np.sin(theta)
-        vz = self.speed * np.sin(self.phi)
-        ics = [x, y, z, vx, vy, vz]
+        theta = theta0 - self.initial["theta"]
+        vx = -self.initial["speed"] * np.cos(self.initial["phi"]) * np.cos(theta)
+        vy = -self.initial["speed"] * np.cos(self.initial["phi"]) * np.sin(theta)
+        vz = self.initial["speed"] * np.sin(self.initial["phi"])
+        omega = self.initial["omega"]
+        ics = [x, y, z, vx, vy, vz, omega]
         # Save ICs in state vector
         self.states.append(ics)
         nit = 0
-        while not self.end and nit < 2000:
+        # Terminate either when out of bounds or 10 seconds passed
+        while not self.end and nit < 10/timestep:
             derivs = self.dynamics()
             self.integrate(derivs)
             self.check_end()
@@ -89,21 +104,25 @@ class Ball:
         :params x: State variable vector
             position, velocity
         """
-        x, y, z, vx, vy, vz = self.states[-1]
+        x, y, z, vx, vy, vz, omega = self.states[-1]
         # dx/dt = v
         dx, dy, dz = (vx, vy, vz)
         speed = np.linalg.norm([vx, vy, vz])
         # Gravity + buoyancy (z)
         Fg = ball_m * g_eff
         # Drag - Dx = D * vx/speed
-        Fd = 0.5 * ball_cd * rho * speed**2 * (np.pi*ball_r**2)
+        CD = self.get_cd(speed)
+        Fd = 0.5 * CD * rho * speed**2 * (np.pi*ball_r**2)
 
         # Magnus (omega x v)
-        # Fm = 16 / 3 * np.pi**2 * ball_r**3 * rho * omega * v
+        Fm = 16 / 3 * np.pi**2 * ball_r**3 * rho * omega * speed
 
         Fx = -Fd * vx / speed
         Fy = -Fd * vy / speed
         Fz = -Fd * vz / speed - Fg
+
+        domega = 0
+
         Fcoll = self.collision()
         # If collision, ignore other forces for this time step
         if np.count_nonzero(Fcoll) > 0:
@@ -111,14 +130,29 @@ class Ball:
         # Acceleration = force / mass
         dvx, dvy, dvz = np.array([Fx, Fy, Fz]) / ball_m
 
-        return [dx, dy, dz, dvx, dvy, dvz]
+        return [dx, dy, dz, dvx, dvy, dvz, domega]
+
+    def get_cd(self, speed):
+        """ Calculate drag coefficient of basketball including drag crisis effects
+        between Re 1e5 and 2e5 where CD decreases linearly from ball_cd1 to ball_cd2
+        Re = 1e5 corresponds to approximately 20ft/s
+        """
+        Re = rho / g * speed * 2 * ball_r / mu
+        CD = ball_cd1
+        if 1e5 < Re < 2e5:
+            # CD drop over transition to drag crisis
+            slope = (ball_cd2 - ball_cd1) / 1e5
+            CD += (Re - 1e5) * slope
+        if Re >= 2e5:
+            CD = ball_cd2
+        return CD
 
     def collision(self):
         """ Calculate impulse force from collision.
         Handles backboard, rim, and ground collisions separately and superposes
         if multiple collisions at a time step. Returns impulse vector dp/dt
         """
-        x, y, z, vx, vy, vz = self.states[-1]
+        x, y, z, vx, vy, vz, omega = self.states[-1]
         speed = np.linalg.norm([vx, vy, vz])
         delta_p = np.zeros(3)
 
@@ -147,12 +181,12 @@ class Ball:
             # Set ground queue
             self.ground[-1] = 1
 
-        return delta_p / dt
+        return delta_p / timestep
 
     def dist_to_bb(self):
         """ Calculate projection distance from ball to backboard
         """
-        x, y, z, vx, vy, vz = self.states[-1]
+        x, y, z, vx, vy, vz, omega = self.states[-1]
         dx = x - bb_x
         dy = np.max([-bb_l/2 - y, 0, y - bb_l/2])
         dz = np.max([bb_z_bot - z, 0, z - bb_z_top])
@@ -162,7 +196,7 @@ class Ball:
         """ Calculate projection distance from ball to rim and collision point
         on the rim
         """
-        x, y, z, vx, vy, vz = self.states[-1]
+        x, y, z, vx, vy, vz, omega = self.states[-1]
         planar_d = np.linalg.norm([x,y]) - rim_r
         z_dist = z - 10
         dist = np.linalg.norm([planar_d, z_dist])
@@ -174,13 +208,13 @@ class Ball:
         """ Euler method to integrate derivatives with given timestep dt
         """
         state = self.states[-1]
-        new_state = [state[i] + derivs[i] * dt for i in range(len(state))]
+        new_state = [state[i] + derivs[i] * timestep for i in range(len(state))]
         self.states.append(new_state)
 
     def check_end(self):
         """ Termination conditions if out of bounds and check if scored
         """
-        x, y, z, vx, vy, vz = self.states[-1]
+        x, y, z, vx, vy, vz, omega = self.states[-1]
         # Check out of bound condition
         if z < -1 or (not -5 < x < 45) or np.abs(y) > court_w/2:
             self.end = True
@@ -248,7 +282,7 @@ class Ball:
         if debug:
             fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8,6))
             fig.suptitle("Ball time variables")
-            t = [dt*i for i in range(len(x))]
+            t = [timestep*i for i in range(len(x))]
             ax1.plot(t, x, label="x")
             ax1.plot(t, y, label="y")
             ax1.plot(t, z, label="z")
@@ -265,6 +299,7 @@ class Ball:
 
 
 if __name__ == "__main__":
-    # Initialize ball obj with (x, y, z, v, launch angle, side deviation angle)
-    ball = Ball(11, -11, 5.5, 27, 55, 0)
+    # Initialize ball object with
+    # (x, y, z, speed, launch_angle, side_angle, backspin)
+    ball = Ball(11, -11, 5.5, 27, 55, 0, 1)
     print("Scored:", ball.score)
