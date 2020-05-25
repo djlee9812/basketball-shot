@@ -127,7 +127,8 @@ class Ball:
         omega = np.linalg.norm([wx, wy, wz])
         Sp = omega * ball_r / speed
         CL = Sp * 0.77 + 0.12
-        Fmx, Fmy, Fmz = 0.5 * CL * np.pi * ball_r**3 * rho * np.cross([wx, wy, wz], [vx, vy, vz])
+        Fmx, Fmy, Fmz = 0.5 * CL * np.pi * ball_r**3 * rho \
+                        * np.cross([wx, wy, wz], [vx, vy, vz])
 
         Fx = -Fd * vx / speed + Fmx
         Fy = -Fd * vy / speed + Fmy
@@ -178,28 +179,34 @@ class Ball:
         # If collision with x in last 5 time steps: skip x
         # Backboard collision
         if self.dist_to_bb() < ball_r and np.count_nonzero(self.bb) == 0:
-            print("BB", timestep*len(self.states), x, y, z)
+            print("Backboard: t = {:.3f}; pos = ({:.2f}, {:.2f}, {:.2f})".format(\
+                timestep*len(self.states), x, y, z))
             delta_p[0] += (1 + ball_e2) * (-vx * ball_m)
             # Set backboard queue
             self.bb[-1] = 1
         # Rim collision
         rim_dist, rim_pt = self.dist_to_rim()
         # Requires new rim point and not recent collision with connector
-        if rim_dist < ball_r and (x > -rim_r or np.abs(y) > .25) and not np.allclose(rim_pt, self.rimpt) and np.count_nonzero(self.rimsq) == 0:
-            print("Rim", timestep*len(self.states), x, y, z)
+        if rim_dist < ball_r and (x > -rim_r or np.abs(y) > .25) \
+           and not np.allclose(rim_pt, self.rimpt, atol=1e-1) and np.count_nonzero(self.rimsq) == 0:
+            print("Rim: t = {:.3f}; pos = ({:.2f}, {:.2f}, {:.2f})".format(\
+                timestep*len(self.states), x, y, z))
             normvec = np.array([x,y,z]) - np.array(rim_pt)
             normvec /= np.linalg.norm(normvec)
             delta_p -= (1 + ball_e2) * np.dot([vx, vy, vz],normvec) * normvec * ball_m
             # Set last rim collision point
             self.rimpt = rim_pt
         # Rim connector collision
-        if bb_x < x < -rim_r and np.abs(y) < .25 and 10 < z < 10 + ball_r and np.count_nonzero(self.rimsq) == 0:
-            print("Connector", timestep*len(self.states), x, y, z)
+        if bb_x < x < -rim_r and np.abs(y) < .25 and 10 < z < 10 + ball_r \
+           and np.count_nonzero(self.rimsq) == 0:
+            print("Connector: t = {:.3f}; pos = ({:.2f}, {:.2f}, {:.2f})".format(\
+                timestep*len(self.states), x, y, z))
             delta_p[2] += (1 + ball_e2) * (-vz * ball_m)
             self.rimsq[-1] = 1
         # Ground collision
         if z <= ball_r and np.count_nonzero(self.ground) == 0:
-            print("Ground", timestep*len(self.states), x, y, z)
+            print("Ground: t = {:.3f}; pos = ({:.2f}, {:.2f}, {:.2f})".format(\
+                timestep*len(self.states), x, y, z))
             delta_p[2] += (1 + ball_e1) * (-vz * ball_m)
             # Set ground queue
             self.ground[-1] = 1
@@ -211,6 +218,7 @@ class Ball:
         """
         x, y, z, vx, vy, vz, wx, wy, wz = self.states[-1]
         dx = x - bb_x
+        # 0 if within (a, b) range, positive otherwise
         dy = np.max([-bb_l/2 - y, 0, y - bb_l/2])
         dz = np.max([bb_z_bot - z, 0, z - bb_z_top])
         return np.linalg.norm([dx, dy, dz])
@@ -303,7 +311,7 @@ class Ball:
         ax.set_ylabel("Y")
         ax.set_zlabel("Z")
         ax.set_title("Shot trajectory")
-        ax.set_xlim(-5, 40)
+        ax.set_xlim(-5, 30)
         ax.set_ylim(-court_w/2-1, court_w/2+1)
         ax.set_zlim(0, 20)
 
@@ -343,5 +351,6 @@ class Ball:
 if __name__ == "__main__":
     # Initialize ball object with
     # (x, y, z, speed, launch_angle, side_angle, backspin)
-    ball = Ball(15, 0, 6, 25.15, 55, 0, 1, True)
-    print("Scored:", ball.score)
+    ball = Ball(15, 0, 6, 26, 55, 1.9, 1, True)
+    msg = "Score!" if ball.score else "Missed!"
+    print(msg)
