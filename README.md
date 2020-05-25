@@ -23,3 +23,5 @@ The class contains a variable `Ball.score` which is a Boolean that determines wh
 
 ## Effects Included
 The current version calculates gravity, air resistance (drag), and momentum impulse from collision with the ground, backboard, and rim. Future updates will include the Magnus effect with a set `spin` parameter and friction during collisions.
+
+Drag coefficient decreases from 0.5 to 0.2 at Re = 1e5 to Re = 2e5. The drag crisis drop are estimated numbers from "On the Size of Sport Fields (Texier et al)" which use numbers from soccer balls. "Identification of basketball parameters for a simulation model (Okubo, Hubbard)" puts a basketball CD at free fall (low Re) at 0.54.

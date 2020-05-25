@@ -54,11 +54,12 @@ class Ball:
         :params omega: Backspin [revolution/second]
         :params debug: Show time graphs if True
         """
+        # Units: [ft], [ft/s], [rad], [rad], [rad/s]
         self.initial = {"position": [x,y,z],
                        "speed": v,
                        "phi": np.radians(phi),
                        "theta": np.radians(theta),
-                       "omega": omega * 2 * np.pi}
+                       "omega": 2 * np.pi * omega}
         self.states = []
         self.score = False
         self.end = False
@@ -66,6 +67,7 @@ class Ball:
         # If collision within last 5 time steps (0.01 sec), don't collide again
         self.ground = np.zeros(5)
         self.rim = np.zeros(5)
+        self.rimsq = np.zeros(10)
         self.bb = np.zeros(5)
         # Shoot after initialization
         self.shot(debug)
@@ -90,7 +92,7 @@ class Ball:
         self.states.append(ics)
         nit = 0
         # Terminate either when out of bounds or 10 seconds passed
-        while not self.end and nit < 10/timestep:
+        while not self.end and nit < 3/timestep:
             derivs = self.dynamics()
             self.integrate(derivs)
             self.check_end()
@@ -115,7 +117,7 @@ class Ball:
         Fd = 0.5 * CD * rho * speed**2 * (np.pi*ball_r**2)
 
         # Magnus (omega x v)
-        Fm = 16 / 3 * np.pi**2 * ball_r**3 * rho * omega * speed
+        # Fm = 0.5 * CL * np.pi * ball_r**3 * rho * np.cross(omega, velocity)
 
         Fx = -Fd * vx / speed
         Fy = -Fd * vy / speed
@@ -159,9 +161,9 @@ class Ball:
         # Shift collision backboard, ground queues
         self.bb = np.concatenate([self.bb[1:], [0]])
         self.rim = np.concatenate([self.rim[1:], [0]])
+        self.rimsq = np.concatenate([self.rimsq[1:], [0]])
         self.ground = np.concatenate([self.ground[1:], [0]])
         # If collision with x in last 5 time steps: skip x
-
         # Backboard collision
         if self.dist_to_bb() < ball_r and np.count_nonzero(self.bb) == 0:
             delta_p[0] += (1 + ball_e2) * (-vx * ball_m)
@@ -169,12 +171,16 @@ class Ball:
             self.bb[-1] = 1
         # Rim collision
         rim_dist, rim_pt = self.dist_to_rim()
-        if rim_dist < ball_r and np.count_nonzero(self.rim) == 0:
+        if rim_dist < ball_r and x > -rim_r and np.count_nonzero(self.rim) == 0:
             normvec = np.array([x,y,z]) - np.array(rim_pt)
             normvec /= np.linalg.norm(normvec)
             delta_p -= (1 + ball_e2) * np.dot([vx, vy, vz],normvec) * normvec * ball_m
             # Set rim queue
             self.rim[-1] = 1
+        # If not rim then potentially rim connector
+        if bb_x < x < -rim_r and np.abs(y) < .25 and 10 < z < 10 + ball_r and np.count_nonzero(self.rimsq) == 0:
+            delta_p[2] += (1 + ball_e2) * (-vz * ball_m)
+            self.rimsq[-1] = 1
         # Ground collision
         if z <= ball_r and np.count_nonzero(self.ground) == 0:
             delta_p[2] += (1 + ball_e1) * (-vz * ball_m)
@@ -216,7 +222,7 @@ class Ball:
         """
         x, y, z, vx, vy, vz, omega = self.states[-1]
         # Check out of bound condition
-        if z < -1 or (not -5 < x < 45) or np.abs(y) > court_w/2:
+        if z < -1 or (not -5 < x < 45) or np.abs(y) > court_w/2:# or (self.score and z < 1):
             self.end = True
         # Scoring condition: slightly below rim and inside rim circle
         if np.linalg.norm([x,y]) < rim_r and 9.5 < z < 9.95:
@@ -233,6 +239,10 @@ class Ball:
         ax.plot(x, y, z)
         ax.scatter(x[0], y[0], z[0], color="orange", s=100)
 
+        position = Circle((x[0],y[0]),.5, color="gray")
+        ax.add_patch(position)
+        art3d.pathpatch_2d_to_3d(position)
+
         # Plot backboard rectangle
         backboard = Rectangle((-bb_l/2, bb_z_bot), bb_l, bb_h, fill=False, linewidth=1)
         ax.add_patch(backboard)
@@ -245,6 +255,10 @@ class Ball:
         rim = Circle((0, 0), rim_r, fill=False, edgecolor="red", linewidth=1)
         ax.add_patch(rim)
         art3d.pathpatch_2d_to_3d(rim, z=rim_h)
+        # Plot rim connector to backboard
+        rim_sq = Rectangle((bb_x, -.25), .5, .5, fill=True, color="red")
+        ax.add_patch(rim_sq)
+        art3d.pathpatch_2d_to_3d(rim_sq, z=10)
         # Plot half court sideline and baseline
         court = Rectangle((-4, -court_w/2), court_l/2, court_w, fill=False, linewidth=2)
         ax.add_patch(court)
@@ -301,5 +315,5 @@ class Ball:
 if __name__ == "__main__":
     # Initialize ball object with
     # (x, y, z, speed, launch_angle, side_angle, backspin)
-    ball = Ball(11, -11, 5.5, 27, 55, 0, 1)
+    ball = Ball(15, 0, 6, 27.5, 55, 0, 1, True)
     print("Scored:", ball.score)
