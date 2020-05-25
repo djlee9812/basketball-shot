@@ -61,12 +61,13 @@ class Ball:
                        "theta": np.radians(theta),
                        "omega": 2 * np.pi * omega}
         self.states = []
+        self.data = []
         self.score = False
         self.end = False
         # Queue for recent collisions with ground / backboard (avoid oscillations)
-        # If collision within last 5 time steps (0.01 sec), don't collide again
+        # If collision within last t time steps, don't collide again
         self.ground = np.zeros(5)
-        self.rim = np.zeros(5)
+        self.rimpt = np.zeros(3)
         self.rimsq = np.zeros(10)
         self.bb = np.zeros(5)
         # Shoot after initialization
@@ -86,8 +87,13 @@ class Ball:
         vx = -self.initial["speed"] * np.cos(self.initial["phi"]) * np.cos(theta)
         vy = -self.initial["speed"] * np.cos(self.initial["phi"]) * np.sin(theta)
         vz = self.initial["speed"] * np.sin(self.initial["phi"])
+
         omega = self.initial["omega"]
-        ics = [x, y, z, vx, vy, vz, omega]
+        # Omega for backspin - to the right in body frame (v x z)
+        omega_dir = np.cross([vx, vy, vz], [0, 0, 1])
+        omega_dir /= np.linalg.norm(omega_dir)
+        wx, wy, wz = omega * omega_dir
+        ics = [x, y, z, vx, vy, vz, wx, wy, wz]
         # Save ICs in state vector
         self.states.append(ics)
         nit = 0
@@ -98,6 +104,7 @@ class Ball:
             self.check_end()
             nit += 1
         self.states = np.array(self.states)
+        self.data = np.array(self.data)
         self.visualize(debug)
 
 
@@ -106,24 +113,27 @@ class Ball:
         :params x: State variable vector
             position, velocity
         """
-        x, y, z, vx, vy, vz, omega = self.states[-1]
+        x, y, z, vx, vy, vz, wx, wy, wz = self.states[-1]
         # dx/dt = v
         dx, dy, dz = (vx, vy, vz)
         speed = np.linalg.norm([vx, vy, vz])
         # Gravity + buoyancy (z)
         Fg = ball_m * g_eff
         # Drag - Dx = D * vx/speed
-        CD = self.get_cd(speed)
+        CD, Re = self.get_cd(speed)
         Fd = 0.5 * CD * rho * speed**2 * (np.pi*ball_r**2)
 
         # Magnus (omega x v)
-        # Fm = 0.5 * CL * np.pi * ball_r**3 * rho * np.cross(omega, velocity)
+        omega = np.linalg.norm([wx, wy, wz])
+        Sp = omega * ball_r / speed
+        CL = Sp * 0.77 + 0.12
+        Fmx, Fmy, Fmz = 0.5 * CL * np.pi * ball_r**3 * rho * np.cross([wx, wy, wz], [vx, vy, vz])
 
-        Fx = -Fd * vx / speed
-        Fy = -Fd * vy / speed
-        Fz = -Fd * vz / speed - Fg
+        Fx = -Fd * vx / speed + Fmx
+        Fy = -Fd * vy / speed + Fmy
+        Fz = -Fd * vz / speed - Fg + Fmz
 
-        domega = 0
+        dwx, dwy, dwz = np.zeros(3)
 
         Fcoll = self.collision()
         # If collision, ignore other forces for this time step
@@ -131,8 +141,11 @@ class Ball:
             Fx, Fy, Fz = Fcoll
         # Acceleration = force / mass
         dvx, dvy, dvz = np.array([Fx, Fy, Fz]) / ball_m
+        data = [Fg, CD, Fd, Re, Sp, CL, Fmx, Fmy, Fmz]
+        data.extend(Fcoll)
+        self.data.append(data)
 
-        return [dx, dy, dz, dvx, dvy, dvz, domega]
+        return [dx, dy, dz, dvx, dvy, dvz, dwx, dwy, dwz]
 
     def get_cd(self, speed):
         """ Calculate drag coefficient of basketball including drag crisis effects
@@ -147,42 +160,46 @@ class Ball:
             CD += (Re - 1e5) * slope
         if Re >= 2e5:
             CD = ball_cd2
-        return CD
+        return CD, Re
 
     def collision(self):
         """ Calculate impulse force from collision.
         Handles backboard, rim, and ground collisions separately and superposes
         if multiple collisions at a time step. Returns impulse vector dp/dt
         """
-        x, y, z, vx, vy, vz, omega = self.states[-1]
+        x, y, z, vx, vy, vz, wx, wy, wz = self.states[-1]
         speed = np.linalg.norm([vx, vy, vz])
         delta_p = np.zeros(3)
 
         # Shift collision backboard, ground queues
         self.bb = np.concatenate([self.bb[1:], [0]])
-        self.rim = np.concatenate([self.rim[1:], [0]])
         self.rimsq = np.concatenate([self.rimsq[1:], [0]])
         self.ground = np.concatenate([self.ground[1:], [0]])
         # If collision with x in last 5 time steps: skip x
         # Backboard collision
         if self.dist_to_bb() < ball_r and np.count_nonzero(self.bb) == 0:
+            print("BB", timestep*len(self.states), x, y, z)
             delta_p[0] += (1 + ball_e2) * (-vx * ball_m)
             # Set backboard queue
             self.bb[-1] = 1
         # Rim collision
         rim_dist, rim_pt = self.dist_to_rim()
-        if rim_dist < ball_r and x > -rim_r and np.count_nonzero(self.rim) == 0:
+        # Requires new rim point and not recent collision with connector
+        if rim_dist < ball_r and (x > -rim_r or np.abs(y) > .25) and not np.allclose(rim_pt, self.rimpt) and np.count_nonzero(self.rimsq) == 0:
+            print("Rim", timestep*len(self.states), x, y, z)
             normvec = np.array([x,y,z]) - np.array(rim_pt)
             normvec /= np.linalg.norm(normvec)
             delta_p -= (1 + ball_e2) * np.dot([vx, vy, vz],normvec) * normvec * ball_m
-            # Set rim queue
-            self.rim[-1] = 1
-        # If not rim then potentially rim connector
+            # Set last rim collision point
+            self.rimpt = rim_pt
+        # Rim connector collision
         if bb_x < x < -rim_r and np.abs(y) < .25 and 10 < z < 10 + ball_r and np.count_nonzero(self.rimsq) == 0:
+            print("Connector", timestep*len(self.states), x, y, z)
             delta_p[2] += (1 + ball_e2) * (-vz * ball_m)
             self.rimsq[-1] = 1
         # Ground collision
         if z <= ball_r and np.count_nonzero(self.ground) == 0:
+            print("Ground", timestep*len(self.states), x, y, z)
             delta_p[2] += (1 + ball_e1) * (-vz * ball_m)
             # Set ground queue
             self.ground[-1] = 1
@@ -192,7 +209,7 @@ class Ball:
     def dist_to_bb(self):
         """ Calculate projection distance from ball to backboard
         """
-        x, y, z, vx, vy, vz, omega = self.states[-1]
+        x, y, z, vx, vy, vz, wx, wy, wz = self.states[-1]
         dx = x - bb_x
         dy = np.max([-bb_l/2 - y, 0, y - bb_l/2])
         dz = np.max([bb_z_bot - z, 0, z - bb_z_top])
@@ -202,7 +219,7 @@ class Ball:
         """ Calculate projection distance from ball to rim and collision point
         on the rim
         """
-        x, y, z, vx, vy, vz, omega = self.states[-1]
+        x, y, z, vx, vy, vz, wx, wy, wz = self.states[-1]
         planar_d = np.linalg.norm([x,y]) - rim_r
         z_dist = z - 10
         dist = np.linalg.norm([planar_d, z_dist])
@@ -220,7 +237,7 @@ class Ball:
     def check_end(self):
         """ Termination conditions if out of bounds and check if scored
         """
-        x, y, z, vx, vy, vz, omega = self.states[-1]
+        x, y, z, vx, vy, vz, wx, wy, wz = self.states[-1]
         # Check out of bound condition
         if z < -1 or (not -5 < x < 45) or np.abs(y) > court_w/2:# or (self.score and z < 1):
             self.end = True
@@ -294,7 +311,8 @@ class Ball:
         plt.tight_layout()
         # If debug True, plot time graphs of position and velocity
         if debug:
-            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8,6))
+            Fg, CD, Fd, Re, Sp, CL, Fmx, Fmy, Fmz, Fcx, Fcy, Fcz = self.data.T
+            fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(8,7))
             fig.suptitle("Ball time variables")
             t = [timestep*i for i in range(len(x))]
             ax1.plot(t, x, label="x")
@@ -305,9 +323,19 @@ class Ball:
             ax2.plot(t, vy, label=r"$v_y$")
             ax2.plot(t, vz, label=r"$v_z$")
             ax2.set_ylabel("Velocity [ft/s]")
-            ax2.set_xlabel("Time [sec]")
+            # ax3.plot(Re, CD, label="CD")
+            # ax3.plot(Re, CL, label="CL")
+            ax3.plot(t[1:], CD, label=r"$C_D$")
+            ax3.plot(t[1:], Sp, label=r"$Sp$")
+            ax3.plot(t[1:], CL, label=r"$C_L$")
+            # ax3.plot(t[1:], Fmx)
+            # ax3.plot(t[1:], Fmy)
+            # ax3.plot(t[1:], Fmz)
+            ax3.set_ylabel("Nondim forces")
+            ax3.set_xlabel("Time [sec]")
             ax1.legend()
             ax2.legend()
+            ax3.legend()
 
         plt.show()
 
@@ -315,5 +343,5 @@ class Ball:
 if __name__ == "__main__":
     # Initialize ball object with
     # (x, y, z, speed, launch_angle, side_angle, backspin)
-    ball = Ball(15, 0, 6, 27.5, 55, 0, 1, True)
+    ball = Ball(15, 0, 6, 25.15, 55, 0, 1, True)
     print("Scored:", ball.score)
