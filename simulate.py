@@ -51,6 +51,7 @@ class Ball:
         self.end = False
         # Queue for recent collisions with ground / backboard (avoid oscillations)
         self.ground = np.zeros(5)
+        self.rim = np.zeros(5)
         self.bb = np.zeros(5)
         self.shot()
 
@@ -61,11 +62,11 @@ class Ball:
         """
         # Get initial state in global hoop frame
         x, y, z = self.position
-        ratio = x/y if y != 0 else np.inf
-        theta0 = np.arctan(ratio)
+        # ratio = x/y if y != 0 else np.inf
+        theta0 = np.arctan2(y, x)
         theta = theta0 - self.theta
-        vx = -self.speed * np.cos(self.phi) * np.sin(theta)
-        vy = self.speed * np.cos(self.phi) * np.cos(theta)
+        vx = -self.speed * np.cos(self.phi) * np.cos(theta)
+        vy = -self.speed * np.cos(self.phi) * np.sin(theta)
         vz = self.speed * np.sin(self.phi)
         ics = [x, y, z, vx, vy, vz]
         # Save ICs in state vector
@@ -90,19 +91,21 @@ class Ball:
         dx, dy, dz = (vx, vy, vz)
         speed = np.linalg.norm([vx, vy, vz])
         # Gravity + buoyancy (z)
-        Fg = -ball_m * g_eff
-        # Drag (-v)
+        Fg = ball_m * g_eff
+        # Drag - Dx = D * vx/speed
         Fd = 0.5 * ball_cd * rho * speed**2 * (np.pi*ball_r**2)
 
         # Magnus (omega x v)
         # Fm = 16 / 3 * np.pi**2 * ball_r**3 * rho * omega * v
 
-        dvx = 0
-        dvy = 0
-        dvz = Fg/ball_m
+        Fx = -Fd * vx / speed
+        Fy = -Fd * vy / speed
+        Fz = -Fd * vz / speed - Fg
         Fcoll = self.collision()
         if np.count_nonzero(Fcoll) > 0:
-            dvx, dvy, dvz = Fcoll / ball_m
+            Fx, Fy, Fz = Fcoll
+        # Acceleration = force / mass
+        dvx, dvy, dvz = np.array([Fx, Fy, Fz]) / ball_m
 
         return [dx, dy, dz, dvx, dvy, dvz]
 
@@ -115,6 +118,7 @@ class Ball:
 
         # Shift collision backboard, ground queues
         self.bb = np.concatenate([self.bb[1:], [0]])
+        self.rim = np.concatenate([self.rim[1:], [0]])
         self.ground = np.concatenate([self.ground[1:], [0]])
         # If collision with backboard or ground in last 5 time steps: skip
 
@@ -122,11 +126,18 @@ class Ball:
             # handle collision with backboard
             delta_p[0] += (1 + ball_e2) * (-vx * ball_m)
             self.bb[-1] = 1
-            print("BB Bounce!")
 
-        if self.dist_to_rim() < ball_r:
+        rim_dist, rim_pt = self.dist_to_rim()
+        if rim_dist < ball_r and np.count_nonzero(self.rim) == 0:
+            print("Hit the rim at", np.degrees(np.arctan2(rim_pt[1], rim_pt[0])))
             # handle collision with rim
-            pass
+            normvec = np.array([x,y,z]) - np.array(rim_pt)
+            normvec /= np.linalg.norm(normvec)
+            print("Normal", normvec)
+            print("Impulse", -np.dot([vx, vy, vz],normvec) * normvec)
+
+            delta_p -= (1 + ball_e2) * np.dot([vx, vy, vz],normvec) * normvec * ball_m
+            self.rim[-1] = 1
 
         if z <= ball_r and np.count_nonzero(self.ground) == 0:
             delta_p[2] += (1 + ball_e1) * (-vz * ball_m)
@@ -144,12 +155,15 @@ class Ball:
         return np.linalg.norm([dx, dy, dz])
 
     def dist_to_rim(self):
-        """ Calculate projection distance from ball to rim
+        """ Calculate projection distance from ball to rim and coord of closest point
         """
         x, y, z, vx, vy, vz = self.states[-1]
         planar_d = np.linalg.norm([x,y]) - rim_r
         z_dist = z - 10
-        return np.linalg.norm([planar_d, z_dist])
+        dist = np.linalg.norm([planar_d, z_dist])
+        scale = rim_r / np.linalg.norm([x,y])
+        pt = [x * scale, y *scale, 10]
+        return dist, pt
 
     def integrate(self, derivs):
         state = self.states[-1]
@@ -214,21 +228,21 @@ class Ball:
 
         # ax.grid(None)
         plt.tight_layout()
-        # plt.show()
-
-        fig, (ax1, ax2) = plt.subplots(2, 1)
-        t = [dt*i for i in range(len(x))]
-        ax1.plot(t, x, label="x")
-        ax1.plot(t, y, label="y")
-        ax1.plot(t, z, label="z")
-        ax2.plot(t, vx, label="vx")
-        ax2.plot(t, vy, label="vy")
-        ax2.plot(t, vz, label="vz")
-        ax2.set_xlabel("Time")
-        ax1.legend()
-        ax2.legend()
         plt.show()
+
+        # fig, (ax1, ax2) = plt.subplots(2, 1)
+        # t = [dt*i for i in range(len(x))]
+        # ax1.plot(t, x, label="x")
+        # ax1.plot(t, y, label="y")
+        # ax1.plot(t, z, label="z")
+        # ax2.plot(t, vx, label="vx")
+        # ax2.plot(t, vy, label="vy")
+        # ax2.plot(t, vz, label="vz")
+        # ax2.set_xlabel("Time")
+        # ax1.legend()
+        # ax2.legend()
+        # plt.show()
 
 
 if __name__ == "__main__":
-    ball = Ball(15, 0, 5.5, 26, 50, 0)
+    ball = Ball(11, -11, 5.5, 26, 55, 0)
