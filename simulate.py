@@ -226,31 +226,59 @@ class Ball:
                 if np.linalg.norm([x_at_rim, y_at_rim]) < rim_r:
                     self.score = True
 
-    def visualize(self, debug=False):
+    def visualize(self, debug=False, animate=False):
         """ Visualize court and ball trajectory in pyplot.
         """
+        import matplotlib.animation as animation
+        
         x, y, z = self.states[:,0:3].T
         vx, vy, vz = self.states[:,3:6].T
         fig = plt.figure(figsize=(12,6))
         ax = fig.add_subplot(111, projection='3d')
-        ax.plot(x, y, z)
-        ax.scatter(x[0], y[0], z[0], color="orange", s=100)
-
-        position = Circle((x[0],y[0]),.5, color="gray")
+        
+        # Static Court Elements
+        # Position of shooter
+        position = Circle((x[0],y[0]),.5, color="gray", alpha=0.3)
         ax.add_patch(position)
         art3d.pathpatch_2d_to_3d(position)
 
-        # Plot court elements
+        # Plot backboard rectangle
         backboard = Rectangle((-bb_l/2, bb_z_bot), bb_l, bb_h, fill=False, linewidth=1)
         ax.add_patch(backboard)
         art3d.pathpatch_2d_to_3d(backboard, z=bb_x, zdir="x")
+        # Plot backboard inside box
+        bb_box = Rectangle((-1, bb_z_bot+.5), 2, 1.5, fill=False, linewidth=1)
+        ax.add_patch(bb_box)
+        art3d.pathpatch_2d_to_3d(bb_box, z=bb_x, zdir="x")
+        # Plot rim circle
         rim = Circle((0, 0), rim_r, fill=False, edgecolor="red", linewidth=1)
         ax.add_patch(rim)
         art3d.pathpatch_2d_to_3d(rim, z=rim_h)
-        
+        # Plot rim connector to backboard
+        rim_sq = Rectangle((bb_x, -.25), .5, .5, fill=True, color="red")
+        ax.add_patch(rim_sq)
+        art3d.pathpatch_2d_to_3d(rim_sq, z=10)
+        # Plot half court sideline and baseline
         court = Rectangle((-4, -court_w/2), court_l/2, court_w, fill=False, linewidth=2)
         ax.add_patch(court)
         art3d.pathpatch_2d_to_3d(court, z=0)
+        # Plot key box
+        key = Rectangle((-4, -6), 19, 12, fill=False, linewidth=1)
+        ax.add_patch(key)
+        art3d.pathpatch_2d_to_3d(key, z=0)
+        # Plot circle around free throw
+        key_circle = Circle((15, 0), 6, fill=False, linewidth=1)
+        ax.add_patch(key_circle)
+        art3d.pathpatch_2d_to_3d(key_circle, z=0)
+        # Plot 3 point line
+        ax.plot([-4, 10], [22, 22], [0, 0], linewidth=1, color="black")
+        ax.plot([-4, 10], [-22, -22], [0, 0], linewidth=1, color="black")
+        
+        # Plot 3 point arc
+        # Arc radius is 23.75ft from the center of the rim (0,0)
+        ys_3 = np.linspace(-22, 22, 100)
+        xs_3 = np.sqrt(np.maximum(23.75**2 - ys_3**2, 0))
+        ax.plot(xs_3, ys_3, np.zeros(len(ys_3)), linewidth=1, color="black")
 
         ax.set_xlabel("X")
         ax.set_ylabel("Y")
@@ -258,7 +286,72 @@ class Ball:
         ax.set_xlim(-5, 45)
         ax.set_ylim(-25, 25)
         ax.set_zlim(0, 50)
-        plt.show()
+        
+        if not animate:
+            ax.plot(x, y, z, color="blue", alpha=0.7)
+            ax.scatter(x[0], y[0], z[0], color="orange", s=100)
+            plt.show()
+        else:
+            # Animation
+            line, = ax.plot([], [], [], color="blue", alpha=0.7, lw=2)
+            ball_pt, = ax.plot([], [], [], "o", color="orange", markersize=10)
+            
+            # Step size for animation (every 10 frames to speed up)
+            step = 10
+            
+            def update(i):
+                end_idx = i * step
+                if end_idx >= len(x):
+                    end_idx = len(x) - 1
+                line.set_data(x[:end_idx], y[:end_idx])
+                line.set_3d_properties(z[:end_idx])
+                ball_pt.set_data(x[end_idx], y[end_idx])
+                ball_pt.set_3d_properties(z[end_idx])
+                return line, ball_pt
+            
+            num_frames = len(x) // step
+            ani = animation.FuncAnimation(fig, update, frames=num_frames, interval=20, blit=True)
+            plt.show()
+
+        # If debug True, plot time graphs of position and velocity
+        if debug:
+            # Reconstruct time array
+            t = np.arange(len(x)) * timestep
+            
+            # Extract data from self.data (Fg, CD, Fd, Re, Sp, CL, Fmx, Fmy, Fmz, ...)
+            data_arr = np.array(self.data)
+            Fg, CD, Fd, Re, Sp, CL, Fmx, Fmy, Fmz = data_arr[:, 0:9].T
+            
+            fig_dbg, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(8,10))
+            fig_dbg.suptitle("Ball Physics Debug Variables")
+            
+            # Subplot 1: Position
+            ax1.plot(t, x, label="x")
+            ax1.plot(t, y, label="y")
+            ax1.plot(t, z, label="z")
+            ax1.set_ylabel("Position [ft]")
+            ax1.legend()
+            
+            # Subplot 2: Velocity
+            ax2.plot(t, vx, label=r"$v_x$")
+            ax2.plot(t, vy, label=r"$v_y$")
+            ax2.plot(t, vz, label=r"$v_z$")
+            ax2.set_ylabel("Velocity [ft/s]")
+            ax2.legend()
+            
+            # Subplot 3: Nondimensional Coefficients (Aerodynamics)
+            # self.data is logged only on k1 steps, so it matches the length of states
+            # (minus 1 if the simulation ended exactly on a step)
+            t_data = t[:len(CD)] 
+            ax3.plot(t_data, CD, label=r"$C_D$ (Drag)")
+            ax3.plot(t_data, Sp, label=r"$Sp$ (Spin)")
+            ax3.plot(t_data, CL, label=r"$C_L$ (Lift)")
+            ax3.set_ylabel("Coefficients")
+            ax3.set_xlabel("Time [sec]")
+            ax3.legend()
+            
+            plt.tight_layout()
+            plt.show()
 
 if __name__ == "__main__":
     import argparse
@@ -275,6 +368,7 @@ if __name__ == "__main__":
     
     # Visuals
     parser.add_argument("--debug", action="store_true", help="Show detailed physics debug plots")
+    parser.add_argument("--animate", action="store_true", help="Animate the shot trajectory")
     
     args = parser.parse_args()
 
@@ -285,4 +379,4 @@ if __name__ == "__main__":
     print(f"Result: {'SCORE!' if ball.score else 'MISSED'}")
     print("-------------------------")
     
-    ball.visualize(debug=args.debug)
+    ball.visualize(debug=args.debug, animate=args.animate)
