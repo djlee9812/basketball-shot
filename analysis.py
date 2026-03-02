@@ -1,14 +1,10 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle, Circle
-from mpl_toolkits.mplot3d import Axes3D
-import mpl_toolkits.mplot3d.art3d as art3d
 from multiprocessing import Pool
 from simulate import Ball
-from multiprocessing import Pool
 import time
 import os
-plt.style.use('seaborn')
+plt.style.use('seaborn-darkgrid')
 
 def data_gen(speeds, phis, h, thetas, omegas):
     for i, v in enumerate(speeds):

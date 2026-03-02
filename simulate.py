@@ -3,7 +3,11 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle, Circle
 from mpl_toolkits.mplot3d import Axes3D
 import mpl_toolkits.mplot3d.art3d as art3d
-plt.style.use('seaborn')
+plt.style.use('seaborn-darkgrid')
+
+# Sources:
+# https://www.sciencedirect.com/science/article/pii/S1877705810003991
+# http://www.physics.usyd.edu.au/~cross/Gripslip.pdf
 
 # Constants (Imperial Units)
 ft2m = 0.3048 # [m/ft]
@@ -337,11 +341,18 @@ class Ball:
         ax.set_ylabel("Y")
         ax.set_zlabel("Z")
         ax.set_title("Shot trajectory")
-        ax.set_xlim(-5, 30)
-        ax.set_ylim(-court_w/2-1, court_w/2+1)
-        ax.set_zlim(0, 20)
-
+        equal_aspect = True
+        if equal_aspect:
+            ax.set_xlim(-5, 45)
+            ax.set_ylim(-25, 25)
+            ax.set_zlim(0, 50)
+        else:
+            ax.set_xlim(-5, 35)
+            ax.set_ylim(-court_w/2, court_w/2)
+            ax.set_zlim(0, 20)
         ax.grid(None)
+        
+
         plt.tight_layout()
         # If debug True, plot time graphs of position and velocity
         if debug:
@@ -377,7 +388,8 @@ class Ball:
 if __name__ == "__main__":
     # Initialize ball object with
     # (x, y, z, speed, launch_angle, side_angle, backspin)
-    ball = Ball(15, -15, 6, 31, 60, -8.5, 5)
+    ball = Ball(15, 0, 6, 26, 56, 0, 5)
     msg = "Score!" if ball.score else "Missed!"
     print(msg)
-    ball.visualize(True)
+    ball.visualize()
+
