@@ -261,6 +261,28 @@ class Ball:
         plt.show()
 
 if __name__ == "__main__":
-    ball = Ball(15, 0, 6, 26, 56, 0, 5)
-    print("Score!" if ball.score else "Missed!")
-    ball.visualize()
+    import argparse
+    parser = argparse.ArgumentParser(description="Basketball Shot Simulator")
+    
+    # Position and Velocity Arguments
+    parser.add_argument("-x", type=float, default=15.0, help="Distance in front of rim [ft] (default: 15.0)")
+    parser.add_argument("-y", type=float, default=0.0, help="Distance to the side of rim [ft] (default: 0.0)")
+    parser.add_argument("-z", type=float, default=6.0, help="Shot release height [ft] (default: 6.0)")
+    parser.add_argument("-v", "--speed", type=float, default=26.0, help="Launch speed [ft/s] (default: 26.0)")
+    parser.add_argument("-a", "--angle", type=float, default=56.0, help="Vertical launch angle [deg] (default: 56.0)")
+    parser.add_argument("-s", "--side", type=float, default=0.0, help="Side angle deviation [deg] (default: 0.0)")
+    parser.add_argument("-w", "--spin", type=float, default=5.0, help="Backspin [rev/s] (default: 5.0)")
+    
+    # Visuals
+    parser.add_argument("--debug", action="store_true", help="Show detailed physics debug plots")
+    
+    args = parser.parse_args()
+
+    # Initialize ball object
+    ball = Ball(args.x, args.y, args.z, args.speed, args.angle, args.side, args.spin)
+    
+    print("-------------------------")
+    print(f"Result: {'SCORE!' if ball.score else 'MISSED'}")
+    print("-------------------------")
+    
+    ball.visualize(debug=args.debug)
