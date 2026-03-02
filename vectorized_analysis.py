@@ -26,7 +26,7 @@ class VectorizedSimulator:
         self.vel[:, 2] = v_mag * np.sin(phi_rad)
         
         # Omega (N, 3)
-        v_dir = self.vel / np.linalg.norm(self.vel, axis=1)[:, None]
+        v_dir = self.vel / np.maximum(np.linalg.norm(self.vel, axis=1)[:, None], 1e-6)
         omg_dir = np.cross(v_dir, [0, 0, 1])
         omg_norm = np.linalg.norm(omg_dir, axis=1)
         valid = omg_norm > 0
@@ -81,7 +81,7 @@ class VectorizedSimulator:
         # Deactivate
         self.active[idx] &= (p_new[:, 2] > -1) & (p_new[:, 0] > -5) & (p_new[:, 0] < 45) & (np.abs(p_new[:, 1]) < court_w/2)
 
-def run_analysis():
+def run_analysis(save=False):
     speeds = np.linspace(23, 34, 100)
     phis = np.linspace(35, 70, 100)
     sim = VectorizedSimulator(speeds, phis, 6.0, np.zeros((100,100)), 5 * np.ones((100,100)))
@@ -95,9 +95,15 @@ def run_analysis():
     print(f"Vectorized simulation: {t1-t0:.4f}s for {sim.N} shots.")
     print(f"Efficiency: {sim.N / (t1-t0):.1f} shots/sec")
     
+    scored_map = sim.scored.reshape(100, 100)
+    
+    if save:
+        np.savez("analysis_results.npz", speeds=speeds, phis=phis, scored=scored_map)
+        print("Results saved to analysis_results.npz")
+    
     plt.figure(figsize=(8,6))
     X, Y = np.meshgrid(speeds, phis)
-    plt.pcolormesh(X, Y, sim.scored.reshape(100, 100), cmap='magma', shading='auto')
+    plt.pcolormesh(X, Y, scored_map, cmap='magma', shading='auto')
     plt.colorbar(label='Scored')
     plt.xlabel("Speeds [ft/s]")
     plt.ylabel("Launch Angle [deg]")
@@ -105,4 +111,9 @@ def run_analysis():
     plt.show()
 
 if __name__ == "__main__":
-    run_analysis()
+    import argparse
+    parser = argparse.ArgumentParser(description="Vectorized Basketball Analysis")
+    parser.add_argument("--save", action="store_true", help="Save results to analysis_results.npz")
+    args = parser.parse_args()
+    
+    run_analysis(save=args.save)

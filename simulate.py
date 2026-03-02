@@ -34,9 +34,12 @@ class Ball:
         self.vel = np.array([[vx, vy, vz]])
 
         # Initial omega (1, 3)
-        v_dir = self.vel / np.linalg.norm(self.vel)
+        v_norm = np.linalg.norm(self.vel)
+        v_dir = self.vel / v_norm if v_norm > 0 else np.array([[1, 0, 0]])
         omg_dir = np.cross(v_dir, [0, 0, 1])
-        omg_dir /= np.linalg.norm(omg_dir)
+        omg_norm = np.linalg.norm(omg_dir)
+        if omg_norm > 0:
+            omg_dir /= omg_norm
         self.omg = omg_dir * (2 * np.pi * omega_rev)
 
         self.states = []
