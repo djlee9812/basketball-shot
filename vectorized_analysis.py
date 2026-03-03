@@ -5,7 +5,22 @@ from constants import *
 import engine
 
 class VectorizedSimulator:
+    """
+    A basketball physics simulator that uses NumPy vectorization
+    to simulate thousands of shots simultaneously.
+    """
     def __init__(self, speeds, phis, h, thetas, omegas, dt=0.002):
+        """
+        Initialize the simulator with grids of shooting parameters.
+        
+        Args:
+            speeds (ndarray): 1D array of launch speeds [ft/s].
+            phis (ndarray): 1D array of vertical launch angles [deg].
+            h (float): Release height [ft].
+            thetas (ndarray): 2D grid of side angle deviations [deg].
+            omegas (ndarray): 2D grid of backspin values [rev/s].
+            dt (float): Integrator timestep [s].
+        """
         self.dt = dt
         S, P = np.meshgrid(speeds, phis)
         self.N = S.size
@@ -41,13 +56,17 @@ class VectorizedSimulator:
         self.last_rim_pt = np.full((self.N, 3), np.inf)
 
     def step(self):
+        """
+        Advance the simulation by one timestep for all active balls.
+        Handles collisions, integration, and scoring detection.
+        """
         idx = self.active
         if not np.any(idx): return
         
         # 1. Physics Step via Engine
         p, v, o = self.pos[idx], self.vel[idx], self.omg[idx]
         
-        v, self.last_rim_pt[idx] = engine.resolve_collisions(
+        v, o, self.last_rim_pt[idx] = engine.resolve_collisions(
             p, v, o, self.last_rim_pt[idx]
         )
         
@@ -64,18 +83,27 @@ class VectorizedSimulator:
             self.scored[active_indices[passed_plane]] |= inside
         
         # 3. Update State
-        self.pos[idx], self.vel[idx] = p_new, v_new
+        self.pos[idx], self.vel[idx], self.omg[idx] = p_new, v_new, o
         
         # Deactivate
         self.active[idx] &= (p_new[:, 2] > -1) & (p_new[:, 0] > -5) & (p_new[:, 0] < 45) & (np.abs(p_new[:, 1]) < court_w/2)
 
-def run_analysis(save=False):
-    speeds = np.linspace(24, 32, 100)
-    phis = np.linspace(35, 70, 100)
-    sim = VectorizedSimulator(speeds, phis, 6.0, np.zeros((100,100)), 5 * np.ones((100,100)))
+def run_analysis(nx, ny, save=False):
+    """
+    Executes a parameter sweep over launch speeds and angles,
+    generates a success map, and optionally saves results.
+    
+    Args:
+        nx (int): Number of speed points in the grid.
+        ny (int): Number of angle points in the grid.
+        save (bool): If True, saves speeds, angles, and score map to analysis_results.npz.
+    """
+    speeds = np.linspace(25, 31, nx)
+    phis = np.linspace(37, 68, ny)
+    sim = VectorizedSimulator(speeds, phis, 6.0, np.zeros((nx, ny)), 5 * np.ones((nx, ny)))
     
     t0 = time.time()
-    for _ in range(2500):
+    for _ in range(int(sim_duration/sim.dt)):
         if not np.any(sim.active): break
         sim.step()
     t1 = time.time()
@@ -83,7 +111,8 @@ def run_analysis(save=False):
     print(f"Vectorized simulation: {t1-t0:.4f}s for {sim.N} shots.")
     print(f"Efficiency: {sim.N / (t1-t0):.1f} shots/sec")
     
-    scored_map = sim.scored.reshape(100, 100)
+    # Reshape scores back to the 2D grid (y-axis is phis, x-axis is speeds)
+    scored_map = sim.scored.reshape(ny, nx)
     
     if save:
         np.savez("analysis_results.npz", speeds=speeds, phis=phis, scored=scored_map)
@@ -101,7 +130,9 @@ def run_analysis(save=False):
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Vectorized Basketball Analysis")
+    parser.add_argument("-nx", type=int, default=100, help="Grid resolution for speeds (default: 100)")
+    parser.add_argument("-ny", type=int, default=100, help="Grid resolution for angles (default: 100)")
     parser.add_argument("--save", action="store_true", help="Save results to analysis_results.npz")
     args = parser.parse_args()
     
-    run_analysis(save=args.save)
+    run_analysis(nx=args.nx, ny=args.ny, save=args.save)

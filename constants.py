@@ -11,6 +11,7 @@ g_eff = g * .985 # Effective gravity after 1.5% buoyancy force
 rho = 0.0764 # Air Density [lbm/ft^3]
 mu = 3.737e-7 # Dynamic viscosity [lbm * s/ft^2]
 timestep = 0.002 # Integrator time step [sec]
+sim_duration = 5.0 # Maximum simulation time [sec]
 
 # NBA Court Dimensions
 court_l = 94.0
@@ -32,6 +33,9 @@ ball_r = 29.5 / 12 / (2 * np.pi) # 29.5" circumference
 ball_m = 0.620 * kg2lb # Weight (567-650g - Wikipedia) [grams]
 ball_e1 = 0.84 # Coefficient of Restitution - Ground
 ball_e2 = 0.65 # Coefficient of Restitution - Backboard/rim
+mu_ground = 0.6 # Friction - Ground
+mu_bb = 0.2     # Friction - Backboard
+mu_rim = 0.3    # Friction - Rim
 ball_cd1 = 0.5 # Coefficient of drag (low Re)
 ball_cd2 = 0.2 # Coefficient of drag (Drag crisis)
 alpha = 0.66

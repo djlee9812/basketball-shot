@@ -58,13 +58,13 @@ class Ball:
         horizontal launch deviation theta
         """
         nit = 0
-        # Terminate either when out of bounds or 10 seconds passed
-        while not self.end and nit < 3/timestep:
+        # Terminate either when out of bounds or sim_duration passed
+        while not self.end and nit < sim_duration/timestep:
             # Save state
             self.states.append(np.concatenate([self.pos[0], self.vel[0], self.omg[0]]))
             
             # Physics Step (Engine)
-            self.vel, self.last_rim_pt = engine.resolve_collisions(
+            self.vel, self.omg, self.last_rim_pt = engine.resolve_collisions(
                 self.pos, self.vel, self.omg, self.last_rim_pt
             )
             
