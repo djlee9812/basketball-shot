@@ -69,8 +69,8 @@ class VectorizedSimulator:
         passed_plane = (p[:, 2] >= 10.0) & (p_new[:, 2] < 10.0)
         if np.any(passed_plane):
             f = (p[passed_plane, 2] - 10.0) / (p[passed_plane, 2] - p_new[passed_plane, 2] + 1e-10)
-            x_rim = p[passed_plane, 0] + f * (p_new[passed_plane, 0] - p[0, 0])
-            y_rim = p[passed_plane, 1] + f * (p_new[passed_plane, 1] - p[0, 1])
+            x_rim = p[passed_plane, 0] + f * (p_new[passed_plane, 0] - p[passed_plane, 0])
+            y_rim = p[passed_plane, 1] + f * (p_new[passed_plane, 1] - p[passed_plane, 1])
             inside = (x_rim**2 + y_rim**2) < rim_r**2
             self.scored[np.where(idx)[0][passed_plane]] |= inside
         
@@ -111,6 +111,8 @@ def run_analysis(nx, ny, save=False):
     plt.xlabel("Launch Speed [ft/s]")
     plt.ylabel("Launch Angle [deg]")
     plt.title("Shot Success Map")
+    plt.savefig("plots/shots.png", dpi=300)
+    print("Plot saved to plots/shots.png")
     plt.show()
 
 if __name__ == "__main__":

@@ -71,6 +71,10 @@ def apply_friction(v_cm, omg, n, e, mu_f):
     Returns:
         tuple: (delta_v, delta_w, hit_mask)
     """
+    # Ensure n matches v_cm shape for broadcasting (needed for ground/connector)
+    if n.shape[0] == 1 and v_cm.shape[0] > 1:
+        n = np.tile(n, (v_cm.shape[0], 1))
+
     v_n_mag = np.sum(v_cm * n, axis=1)
     mask_towards = v_n_mag < -1e-6
     
@@ -83,9 +87,6 @@ def apply_friction(v_cm, omg, n, e, mu_f):
     ot = omg[mask_towards]
     nt = n[mask_towards]
     vn_mag_t = v_n_mag[mask_towards][:, None]
-    
-    if nt.shape[0] == 1 and vt_cm.shape[0] > 1:
-        nt = np.tile(nt, (vt_cm.shape[0], 1))
 
     # Normal Impulse (Restitution)
     dv_n = -(1 + e) * vn_mag_t * nt
@@ -165,7 +166,9 @@ def resolve_collisions(pos, vel, omg, last_rim_pt):
     mask_conn = (pos[:, 0] > bb_x) & (pos[:, 0] < -rim_r) & (np.abs(pos[:, 1]) < 0.25) & \
                 (pos[:, 2] > 10 - ball_r) & (pos[:, 2] < 10 + ball_r)
     if np.any(mask_conn):
-        n = np.array([[0, 0, 1]])
+        n = np.zeros((np.sum(mask_conn), 3))
+        # Normal is up if hitting top, down if hitting bottom
+        n[:, 2] = np.where(pos[mask_conn, 2] > 10.0, 1.0, -1.0)
         dv, dw, hit = apply_friction(vel[mask_conn], omg[mask_conn], n, ball_e2, mu_rim)
         indices = np.where(mask_conn)[0][hit]
         vel[indices] += dv[hit]
