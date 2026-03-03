@@ -47,10 +47,7 @@ class Ball:
         self.score = False
         self.end = False
         
-        # Cooldowns (1-element arrays for engine)
-        self.bb_cd = np.zeros(1, dtype=int)
-        self.rim_cd = np.zeros(1, dtype=int)
-        self.gr_cd = np.zeros(1, dtype=int)
+        # Persistent memory for rim hits (to prevent micro-jitters)
         self.last_rim_pt = np.full((1, 3), np.inf)
 
         self.shot()
@@ -67,15 +64,9 @@ class Ball:
             self.states.append(np.concatenate([self.pos[0], self.vel[0], self.omg[0]]))
             
             # Physics Step (Engine)
-            self.vel, h_bb, h_rim, h_conn, h_gr, r_pts = engine.resolve_collisions(
-                self.pos, self.vel, self.bb_cd, self.rim_cd, self.gr_cd, self.last_rim_pt
+            self.vel, self.last_rim_pt = engine.resolve_collisions(
+                self.pos, self.vel, self.omg, self.last_rim_pt
             )
-            
-            # Commit hits to cooldowns
-            if h_bb[0]: self.bb_cd[0] = 5
-            if h_conn[0]: self.rim_cd[0] = 10
-            if h_gr[0]: self.gr_cd[0] = 5
-            if h_rim[0]: self.last_rim_pt[0] = r_pts[0]
             
             # Log forces for debug mode (using current k1 state)
             accel, debug_info = engine.get_acceleration(self.vel, self.omg)
@@ -88,9 +79,6 @@ class Ball:
             # Scoring & Termination logic
             self.check_scoring(self.pos[0], p_new[0])
             self.pos, self.vel = p_new, v_new
-            self.bb_cd = np.maximum(0, self.bb_cd - 1)
-            self.rim_cd = np.maximum(0, self.rim_cd - 1)
-            self.gr_cd = np.maximum(0, self.gr_cd - 1)
             
             # Deactivate
             if self.pos[0, 2] < -1 or (not -5 < self.pos[0, 0] < 45) or np.abs(self.pos[0, 1]) > court_w/2:

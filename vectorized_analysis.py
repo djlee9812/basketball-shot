@@ -37,10 +37,7 @@ class VectorizedSimulator:
         self.active = np.ones(self.N, dtype=bool)
         self.scored = np.zeros(self.N, dtype=bool)
         
-        # Cooldowns
-        self.bb_cd = np.zeros(self.N, dtype=int)
-        self.rim_cd = np.zeros(self.N, dtype=int)
-        self.gr_cd = np.zeros(self.N, dtype=int)
+        # Memory for rim hits (prevents micro-jitters)
         self.last_rim_pt = np.full((self.N, 3), np.inf)
 
     def step(self):
@@ -50,16 +47,9 @@ class VectorizedSimulator:
         # 1. Physics Step via Engine
         p, v, o = self.pos[idx], self.vel[idx], self.omg[idx]
         
-        v, h_bb, h_rim, h_conn, h_gr, r_pts = engine.resolve_collisions(
-            p, v, self.bb_cd[idx], self.rim_cd[idx], self.gr_cd[idx], self.last_rim_pt[idx]
+        v, self.last_rim_pt[idx] = engine.resolve_collisions(
+            p, v, o, self.last_rim_pt[idx]
         )
-        
-        # Update cooldowns and rim points based on hits
-        active_indices = np.where(idx)[0]
-        self.bb_cd[active_indices[h_bb]] = 5
-        self.rim_cd[active_indices[h_conn]] = 10
-        self.gr_cd[active_indices[h_gr]] = 5
-        self.last_rim_pt[active_indices[h_rim]] = r_pts[h_rim]
         
         p_new, v_new = engine.step_rk4(p, v, o, self.dt)
         
@@ -70,19 +60,17 @@ class VectorizedSimulator:
             x_rim = p[passed_plane, 0] + f * (p_new[passed_plane, 0] - p[passed_plane, 0])
             y_rim = p[passed_plane, 1] + f * (p_new[passed_plane, 1] - p[passed_plane, 1])
             inside = (x_rim**2 + y_rim**2) < rim_r**2
+            active_indices = np.where(idx)[0]
             self.scored[active_indices[passed_plane]] |= inside
         
         # 3. Update State
         self.pos[idx], self.vel[idx] = p_new, v_new
-        self.bb_cd[idx] = np.maximum(0, self.bb_cd[idx] - 1)
-        self.rim_cd[idx] = np.maximum(0, self.rim_cd[idx] - 1)
-        self.gr_cd[idx] = np.maximum(0, self.gr_cd[idx] - 1)
         
         # Deactivate
         self.active[idx] &= (p_new[:, 2] > -1) & (p_new[:, 0] > -5) & (p_new[:, 0] < 45) & (np.abs(p_new[:, 1]) < court_w/2)
 
 def run_analysis(save=False):
-    speeds = np.linspace(23, 34, 100)
+    speeds = np.linspace(24, 32, 100)
     phis = np.linspace(35, 70, 100)
     sim = VectorizedSimulator(speeds, phis, 6.0, np.zeros((100,100)), 5 * np.ones((100,100)))
     
@@ -107,7 +95,7 @@ def run_analysis(save=False):
     plt.colorbar(label='Scored')
     plt.xlabel("Speeds [ft/s]")
     plt.ylabel("Launch Angle [deg]")
-    plt.title("Vectorized Success Map")
+    plt.title("Shot Success Map")
     plt.show()
 
 if __name__ == "__main__":
