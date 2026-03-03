@@ -78,7 +78,7 @@ class VectorizedSimulator:
         self.pos[idx], self.vel[idx], self.omg[idx] = p_new, v_new, o
         self.active[idx] &= (p_new[:, 2] > -1) & (p_new[:, 0] > -5) & (p_new[:, 0] < 45) & (np.abs(p_new[:, 1]) < court_w/2)
 
-def run_analysis(nx, ny, save=False):
+def run_analysis(nx, ny, save=False, plot=True):
     """ Executes a parameter sweep and generates a success map. """
     speeds = np.linspace(25, 31, nx)
     phis = np.linspace(37, 68, ny)
@@ -104,16 +104,17 @@ def run_analysis(nx, ny, save=False):
         np.savez("analysis_results.npz", speeds=speeds, phis=phis, scored=scored_map)
         print("Results saved to analysis_results.npz")
     
-    plt.figure(figsize=(8,6))
-    X, Y = np.meshgrid(speeds, phis)
-    plt.pcolormesh(X, Y, scored_map, cmap='magma', shading='auto')
-    plt.colorbar(label='Scored')
-    plt.xlabel("Launch Speed [ft/s]")
-    plt.ylabel("Launch Angle [deg]")
-    plt.title("Shot Success Map")
-    plt.savefig("plots/shots.png", dpi=300)
-    print("Plot saved to plots/shots.png")
-    plt.show()
+    if plot:
+        plt.figure(figsize=(8,6))
+        X, Y = np.meshgrid(speeds, phis)
+        plt.pcolormesh(X, Y, scored_map, cmap='magma', shading='auto')
+        plt.colorbar(label='Scored')
+        plt.xlabel("Launch Speed [ft/s]")
+        plt.ylabel("Launch Angle [deg]")
+        plt.title("Shot Success Map")
+        plt.show()
+    
+    return speeds, phis, scored_map
 
 if __name__ == "__main__":
     import argparse
