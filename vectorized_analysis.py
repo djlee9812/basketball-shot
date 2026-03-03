@@ -6,31 +6,31 @@ import engine
 
 class VectorizedSimulator:
     """
-    A basketball physics simulator that uses NumPy vectorization
-    to simulate thousands of shots simultaneously.
+    Physics driver for simulating many shots in parallel.
+    Uses NumPy arrays to process all balls in a single vectorized step.
     """
-    def __init__(self, speeds, phis, h, thetas, omegas, dt=0.002):
+    def __init__(self, speeds, phis, h, thetas, omegas, dt=timestep):
         """
-        Initialize the simulator with grids of shooting parameters.
+        Initializes the state for all balls in the grid.
         
         Args:
             speeds (ndarray): 1D array of launch speeds [ft/s].
-            phis (ndarray): 1D array of vertical launch angles [deg].
+            phis (ndarray): 1D array of launch angles [deg].
             h (float): Release height [ft].
-            thetas (ndarray): 2D grid of side angle deviations [deg].
+            thetas (ndarray): 2D grid of side deviation angles [deg].
             omegas (ndarray): 2D grid of backspin values [rev/s].
-            dt (float): Integrator timestep [s].
+            dt (float): Timestep [sec].
         """
         self.dt = dt
+        self.N = speeds.size * phis.size
         S, P = np.meshgrid(speeds, phis)
-        self.N = S.size
         
         # Position (N, 3)
         self.pos = np.zeros((self.N, 3))
-        self.pos[:, 0] = 15.0
-        self.pos[:, 2] = h
+        self.pos[:, 0] = 15.0 # Fixed X starting position
+        self.pos[:, 2] = h    # Fixed height
         
-        # Velocity (N, 3)
+        # Initial velocity (N, 3)
         phi_rad = np.radians(P.flatten())
         theta_rad = np.radians(thetas.flatten())
         v_mag = S.flatten()
@@ -40,70 +40,57 @@ class VectorizedSimulator:
         self.vel[:, 1] = -v_mag * np.cos(phi_rad) * np.sin(theta_rad)
         self.vel[:, 2] = v_mag * np.sin(phi_rad)
         
-        # Omega (N, 3)
-        v_dir = self.vel / np.maximum(np.linalg.norm(self.vel, axis=1)[:, None], 1e-6)
+        # Initial angular velocity (N, 3)
+        v_norm = np.maximum(np.linalg.norm(self.vel, axis=1)[:, None], 1e-6)
+        v_dir = self.vel / v_norm
         omg_dir = np.cross(v_dir, [0, 0, 1])
-        omg_norm = np.linalg.norm(omg_dir, axis=1)
-        valid = omg_norm > 0
-        omg_dir[valid] /= omg_norm[valid][:, None]
+        omg_norm = np.linalg.norm(omg_dir, axis=1)[:, None]
+        valid = omg_norm.flatten() > 0
+        omg_dir[valid] /= omg_norm[valid]
         self.omg = omg_dir * (2 * np.pi * omegas.flatten()[:, None])
         
-        # State tracking
         self.active = np.ones(self.N, dtype=bool)
         self.scored = np.zeros(self.N, dtype=bool)
-        
-        # Memory for rim hits (prevents micro-jitters)
         self.last_rim_pt = np.full((self.N, 3), np.inf)
 
     def step(self):
-        """
-        Advance the simulation by one timestep for all active balls.
-        Handles collisions, integration, and scoring detection.
-        """
+        """ Advances all active balls by one physics step. """
         idx = self.active
         if not np.any(idx): return
         
-        # 1. Physics Step via Engine
+        # 1. Collision Handling
         p, v, o = self.pos[idx], self.vel[idx], self.omg[idx]
+        v, o, self.last_rim_pt[idx] = engine.resolve_collisions(p, v, o, self.last_rim_pt[idx])
         
-        v, o, self.last_rim_pt[idx] = engine.resolve_collisions(
-            p, v, o, self.last_rim_pt[idx]
-        )
-        
+        # 2. Continuous Integration (RK4)
         p_new, v_new = engine.step_rk4(p, v, o, self.dt)
         
-        # 2. Scoring Logic (Exact Parity)
+        # 3. Scoring Detection (Rim Plane Crossing)
         passed_plane = (p[:, 2] >= 10.0) & (p_new[:, 2] < 10.0)
         if np.any(passed_plane):
             f = (p[passed_plane, 2] - 10.0) / (p[passed_plane, 2] - p_new[passed_plane, 2] + 1e-10)
-            x_rim = p[passed_plane, 0] + f * (p_new[passed_plane, 0] - p[passed_plane, 0])
-            y_rim = p[passed_plane, 1] + f * (p_new[passed_plane, 1] - p[passed_plane, 1])
+            x_rim = p[passed_plane, 0] + f * (p_new[passed_plane, 0] - p[0, 0])
+            y_rim = p[passed_plane, 1] + f * (p_new[passed_plane, 1] - p[0, 1])
             inside = (x_rim**2 + y_rim**2) < rim_r**2
-            active_indices = np.where(idx)[0]
-            self.scored[active_indices[passed_plane]] |= inside
+            self.scored[np.where(idx)[0][passed_plane]] |= inside
         
-        # 3. Update State
+        # 4. State Committal & Deactivation
         self.pos[idx], self.vel[idx], self.omg[idx] = p_new, v_new, o
-        
-        # Deactivate
         self.active[idx] &= (p_new[:, 2] > -1) & (p_new[:, 0] > -5) & (p_new[:, 0] < 45) & (np.abs(p_new[:, 1]) < court_w/2)
 
 def run_analysis(nx, ny, save=False):
-    """
-    Executes a parameter sweep over launch speeds and angles,
-    generates a success map, and optionally saves results.
-    
-    Args:
-        nx (int): Number of speed points in the grid.
-        ny (int): Number of angle points in the grid.
-        save (bool): If True, saves speeds, angles, and score map to analysis_results.npz.
-    """
+    """ Executes a parameter sweep and generates a success map. """
     speeds = np.linspace(25, 31, nx)
     phis = np.linspace(37, 68, ny)
-    sim = VectorizedSimulator(speeds, phis, 6.0, np.zeros((nx, ny)), 5 * np.ones((nx, ny)))
+    # Dummy grids for initialization
+    thetas = np.zeros((ny, nx))
+    omegas = 5 * np.ones((ny, nx))
+    
+    sim = VectorizedSimulator(speeds, phis, 6.0, thetas, omegas)
     
     t0 = time.time()
-    for _ in range(int(sim_duration/sim.dt)):
+    max_iters = int(sim_duration / timestep)
+    for _ in range(max_iters):
         if not np.any(sim.active): break
         sim.step()
     t1 = time.time()
@@ -111,7 +98,6 @@ def run_analysis(nx, ny, save=False):
     print(f"Vectorized simulation: {t1-t0:.4f}s for {sim.N} shots.")
     print(f"Efficiency: {sim.N / (t1-t0):.1f} shots/sec")
     
-    # Reshape scores back to the 2D grid (y-axis is phis, x-axis is speeds)
     scored_map = sim.scored.reshape(ny, nx)
     
     if save:
@@ -122,7 +108,7 @@ def run_analysis(nx, ny, save=False):
     X, Y = np.meshgrid(speeds, phis)
     plt.pcolormesh(X, Y, scored_map, cmap='magma', shading='auto')
     plt.colorbar(label='Scored')
-    plt.xlabel("Speeds [ft/s]")
+    plt.xlabel("Launch Speed [ft/s]")
     plt.ylabel("Launch Angle [deg]")
     plt.title("Shot Success Map")
     plt.show()
@@ -130,9 +116,9 @@ def run_analysis(nx, ny, save=False):
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Vectorized Basketball Analysis")
-    parser.add_argument("-nx", type=int, default=100, help="Grid resolution for speeds (default: 100)")
-    parser.add_argument("-ny", type=int, default=100, help="Grid resolution for angles (default: 100)")
-    parser.add_argument("--save", action="store_true", help="Save results to analysis_results.npz")
+    parser.add_argument("-nx", type=int, default=100, help="Speed resolution")
+    parser.add_argument("-ny", type=int, default=100, help="Angle resolution")
+    parser.add_argument("--save", action="store_true", help="Save to .npz")
     args = parser.parse_args()
     
     run_analysis(nx=args.nx, ny=args.ny, save=args.save)

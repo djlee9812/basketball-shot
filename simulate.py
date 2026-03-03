@@ -13,15 +13,21 @@ plt.style.use('seaborn-darkgrid')
 # http://www.physics.usyd.edu.au/~cross/Gripslip.pdf
 
 class Ball:
+    """
+    Simulates and visualizes a single basketball shot using the physics engine.
+    """
     def __init__(self, x, y, z, v, phi, theta, omega_rev):
-        """ Initialize a basketball shot and show simulation results
-        :params x: Distance in front of rim [ft]
-        :params y: Distance to the right of rim while facing it [ft]
-        :params z: Distance from ground / shot height [ft]
-        :params v: Shot launch speed [ft/s]
-        :params phi: Shot launch angle from the horizontal [deg]
-        :params theta: Shot angle deviation to the side [deg]
-        :params omega: Backspin [revolution/second]
+        """
+        Initializes a shot and runs the simulation.
+        
+        Args:
+            x (float): Initial X position (distance in front of rim) [ft].
+            y (float): Initial Y position (distance to side) [ft].
+            z (float): Initial height [ft].
+            v (float): Launch speed [ft/s].
+            phi (float): Vertical launch angle [deg].
+            theta (float): Horizontal deviation angle [deg].
+            omega_rev (float): Backspin [rev/s].
         """
         # Initial position (1, 3)
         self.pos = np.array([[x, y, z]])
@@ -53,14 +59,10 @@ class Ball:
         self.shot()
 
     def shot(self):
-        """
-        Simulate a shot from (x,y,z) with speed v, vertical launch angle phi,
-        horizontal launch deviation theta
-        """
+        """ Runs the simulation loop until termination or time limit. """
         nit = 0
-        # Terminate either when out of bounds or sim_duration passed
         while not self.end and nit < sim_duration/timestep:
-            # Save state
+            # Save state for visualization
             self.states.append(np.concatenate([self.pos[0], self.vel[0], self.omg[0]]))
             
             # Physics Step (Engine)
@@ -71,16 +73,16 @@ class Ball:
             # Log forces for debug mode (using current k1 state)
             accel, debug_info = engine.get_acceleration(self.vel, self.omg)
             CD, Fd, Re, Sp, CL, Fm = debug_info
-            # self.data expects: Fg, CD, Fd, Re, Sp, CL, Fmx, Fmy, Fmz
             self.data.append([ball_m * g_eff, CD[0], Fd[0], Re[0], Sp[0], CL[0], Fm[0,0], Fm[0,1], Fm[0,2]])
 
+            # Integrate forward
             p_new, v_new = engine.step_rk4(self.pos, self.vel, self.omg, timestep)
             
             # Scoring & Termination logic
             self.check_scoring(self.pos[0], p_new[0])
             self.pos, self.vel = p_new, v_new
             
-            # Deactivate
+            # Out of bounds check
             if self.pos[0, 2] < -1 or (not -5 < self.pos[0, 0] < 45) or np.abs(self.pos[0, 1]) > court_w/2:
                 self.end = True
             nit += 1
@@ -89,6 +91,7 @@ class Ball:
         self.data = np.array(self.data)
 
     def check_scoring(self, p_prev, p_curr):
+        """ Detects if the ball passes through the rim plane. """
         if not self.score and p_prev[2] >= 10 and p_curr[2] < 10:
             frac = (p_prev[2] - 10) / (p_prev[2] - p_curr[2])
             x_rim = p_prev[0] + frac * (p_curr[0] - p_prev[0])
@@ -97,22 +100,19 @@ class Ball:
                 self.score = True
 
     def visualize(self, debug=False, animate=False):
-        """ Visualize court and ball trajectory in pyplot.
-        """
+        """ Renders the 3D court and ball trajectory. """
         import matplotlib.animation as animation
         
         x, y, z = self.states[:,0:3].T
-        vx, vy, vz = self.states[:,3:6].T
         fig = plt.figure(figsize=(12,6))
         ax = fig.add_subplot(111, projection='3d')
         
-        # Static Court Elements
-        # Position of shooter
-        position = Circle((x[0],y[0]),.5, color="gray", alpha=0.3)
-        ax.add_patch(position)
-        art3d.pathpatch_2d_to_3d(position)
+        # Shooter position
+        shooter_pos = Circle((x[0],y[0]),.5, color="gray", alpha=0.3)
+        ax.add_patch(shooter_pos)
+        art3d.pathpatch_2d_to_3d(shooter_pos)
 
-        # Plot backboard and rim
+        # Backboard and Rim
         backboard = Rectangle((-bb_l/2, bb_z_bot), bb_l, bb_h, fill=False, linewidth=1)
         ax.add_patch(backboard)
         art3d.pathpatch_2d_to_3d(backboard, z=bb_x, zdir="x")
@@ -120,44 +120,43 @@ class Ball:
         ax.add_patch(rim)
         art3d.pathpatch_2d_to_3d(rim, z=rim_h)
 
-        # Plot backboard inside box
+        # Backboard inside box
         bb_box = Rectangle((-1, bb_z_bot+.5), 2, 1.5, fill=False, linewidth=1)
         ax.add_patch(bb_box)
         art3d.pathpatch_2d_to_3d(bb_box, z=bb_x, zdir="x")
 
-        # Plot rim connector to backboard
+        # Rim connector to backboard
         rim_sq = Rectangle((bb_x, -.25), .5, .5, fill=True, color="red")
         ax.add_patch(rim_sq)
         art3d.pathpatch_2d_to_3d(rim_sq, z=10)
 
-        # Plot half court sideline and baseline
+        # Court Lines
         court = Rectangle((-4, -court_w/2), court_l/2, court_w, fill=False, linewidth=2)
         ax.add_patch(court)
         art3d.pathpatch_2d_to_3d(court, z=0)
         
-        # Plot key box
+        # Key box
         key = Rectangle((-4, -6), 19, 12, fill=False, linewidth=1)
         ax.add_patch(key)
         art3d.pathpatch_2d_to_3d(key, z=0)
         
-        # Plot circle around free throw
+        # Circle around free throw
         key_circle = Circle((15, 0), 6, fill=False, linewidth=1)
         ax.add_patch(key_circle)
         art3d.pathpatch_2d_to_3d(key_circle, z=0)
         
-        # Plot 3 point line
+        # 3 point line
         ax.plot([-4, 10], [22, 22], [0, 0], linewidth=1, color="black")
         ax.plot([-4, 10], [-22, -22], [0, 0], linewidth=1, color="black")
         
-        # Plot 3 point arc
-        # Arc radius is 23.75ft from the center of the rim (0,0)
+        # 3 point arc
         ys_3 = np.linspace(-22, 22, 100)
         xs_3 = np.sqrt(np.maximum(23.75**2 - ys_3**2, 0))
         ax.plot(xs_3, ys_3, np.zeros(len(ys_3)), linewidth=1, color="black")
 
-        ax.set_xlabel("X")
-        ax.set_ylabel("Y")
-        ax.set_zlabel("Z")
+        ax.set_xlabel("X [ft]")
+        ax.set_ylabel("Y [ft]")
+        ax.set_zlabel("Z [ft]")
         ax.set_xlim(-5, 45)
         ax.set_ylim(-25, 25)
         ax.set_zlim(0, 50)
@@ -175,9 +174,7 @@ class Ball:
             step = 10
             
             def update(i):
-                end_idx = i * step
-                if end_idx >= len(x):
-                    end_idx = len(x) - 1
+                end_idx = min(i * step, len(x) - 1)
                 line.set_data(x[:end_idx], y[:end_idx])
                 line.set_3d_properties(z[:end_idx])
                 ball_pt.set_data(x[end_idx], y[end_idx])
@@ -188,39 +185,31 @@ class Ball:
             ani = animation.FuncAnimation(fig, update, frames=num_frames, interval=20, blit=True)
             plt.show()
 
-        # If debug True, plot time graphs of position and velocity
         if debug:
-            # Reconstruct time array
             t = np.arange(len(x)) * timestep
-            
-            # Extract data from self.data (Fg, CD, Fd, Re, Sp, CL, Fmx, Fmy, Fmz, ...)
             data_arr = np.array(self.data)
             Fg, CD, Fd, Re, Sp, CL, Fmx, Fmy, Fmz = data_arr[:, 0:9].T
+            vx, vy, vz = self.states[:, 3:6].T
             
             fig_dbg, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(8,10))
-            fig_dbg.suptitle("Ball Physics Debug Variables")
+            fig_dbg.suptitle("Physics Debug Variables")
             
-            # Subplot 1: Position
             ax1.plot(t, x, label="x")
             ax1.plot(t, y, label="y")
             ax1.plot(t, z, label="z")
             ax1.set_ylabel("Position [ft]")
             ax1.legend()
             
-            # Subplot 2: Velocity
             ax2.plot(t, vx, label=r"$v_x$")
             ax2.plot(t, vy, label=r"$v_y$")
             ax2.plot(t, vz, label=r"$v_z$")
             ax2.set_ylabel("Velocity [ft/s]")
             ax2.legend()
             
-            # Subplot 3: Nondimensional Coefficients (Aerodynamics)
-            # self.data is logged only on k1 steps, so it matches the length of states
-            # (minus 1 if the simulation ended exactly on a step)
             t_data = t[:len(CD)] 
-            ax3.plot(t_data, CD, label=r"$C_D$ (Drag)")
-            ax3.plot(t_data, Sp, label=r"$Sp$ (Spin)")
-            ax3.plot(t_data, CL, label=r"$C_L$ (Lift)")
+            ax3.plot(t_data, CD, label=r"$C_D$")
+            ax3.plot(t_data, Sp, label=r"$Sp$")
+            ax3.plot(t_data, CL, label=r"$C_L$")
             ax3.set_ylabel("Coefficients")
             ax3.set_xlabel("Time [sec]")
             ax3.legend()
@@ -231,27 +220,19 @@ class Ball:
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Basketball Shot Simulator")
-    
-    # Position and Velocity Arguments
-    parser.add_argument("-x", type=float, default=15.0, help="Distance in front of rim [ft] (default: 15.0)")
-    parser.add_argument("-y", type=float, default=0.0, help="Distance to the side of rim [ft] (default: 0.0)")
-    parser.add_argument("-z", type=float, default=6.0, help="Shot release height [ft] (default: 6.0)")
-    parser.add_argument("-v", "--speed", type=float, default=26.0, help="Launch speed [ft/s] (default: 26.0)")
-    parser.add_argument("-a", "--angle", type=float, default=56.0, help="Vertical launch angle [deg] (default: 56.0)")
-    parser.add_argument("-s", "--side", type=float, default=0.0, help="Side angle deviation [deg] (default: 0.0)")
-    parser.add_argument("-w", "--spin", type=float, default=5.0, help="Backspin [rev/s] (default: 5.0)")
-    
-    # Visuals
-    parser.add_argument("--debug", action="store_true", help="Show detailed physics debug plots")
-    parser.add_argument("--animate", action="store_true", help="Animate the shot trajectory")
+    parser.add_argument("-x", type=float, default=15.0, help="Dist in front of rim [ft]")
+    parser.add_argument("-y", type=float, default=0.0, help="Dist to side of rim [ft]")
+    parser.add_argument("-z", type=float, default=6.0, help="Shot height [ft]")
+    parser.add_argument("-v", "--speed", type=float, default=26.0, help="Launch speed [ft/s]")
+    parser.add_argument("-a", "--angle", type=float, default=56.0, help="Launch angle [deg]")
+    parser.add_argument("-s", "--side", type=float, default=0.0, help="Deviation angle [deg]")
+    parser.add_argument("-w", "--spin", type=float, default=5.0, help="Backspin [rev/s]")
+    parser.add_argument("--debug", action="store_true", help="Show physics plots")
+    parser.add_argument("--animate", action="store_true", help="Animate trajectory")
     
     args = parser.parse_args()
-
-    # Initialize ball object
     ball = Ball(args.x, args.y, args.z, args.speed, args.angle, args.side, args.spin)
-    
     print("-------------------------")
     print(f"Result: {'SCORE!' if ball.score else 'MISSED'}")
     print("-------------------------")
-    
     ball.visualize(debug=args.debug, animate=args.animate)
