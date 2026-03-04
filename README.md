@@ -67,18 +67,18 @@ The total acceleration **a** is given by:
 $$ \mathbf{a} = \mathbf{g}_{eff} + \frac{\mathbf{F}_d + \mathbf{F}_m}{m} $$
 
 *   **Gravity & Air Buoyancy**: $\mathbf{g}_{eff} = 0.985 \cdot \mathbf{g}$ (accounts for the upward buoyancy of the air).
-*   **Aerodynamic Drag**: $ \mathbf{F}_d = -\frac{1}{2} C_D \rho A |\mathbf{v}| \mathbf{v} $
+*   **Aerodynamic Drag**: $\mathbf{F}_d = -\frac{1}{2} C_D \rho A |\mathbf{v}| \mathbf{v}$
     *   The drag coefficient $C_D$ transitions from 0.5 to 0.2 between $Re=10^5$ and $Re=2 \cdot 10^5$ (Drag Crisis).
-*   **Magnus Effect (Lift)**: $ \mathbf{F}_m = \frac{1}{2} C_L \rho A R (\mathbf{\omega} \times \mathbf{v}) $
+*   **Magnus Effect (Lift)**: $\mathbf{F}_m = \frac{1}{2} C_L \rho A R (\mathbf{\omega} \times \mathbf{v})$
     *   $C_L$ is an affine function of the spin factor $Sp = \frac{\omega R}{|\mathbf{v}|}$.
 
 ### 2. Collision Model
 Collisions are modeled as discrete impulse changes using **Velocity-Direction Masking**. A collision triggers only if the ball center is within the contact radius $R$ and moving into the surface ($\mathbf{v} \cdot \mathbf{n} < 0$).
 
 #### Impulse Components:
-*   **Normal Reflection**: $ \Delta \mathbf{v}_n = -(1 + e) (\mathbf{v} \cdot \mathbf{n}) \mathbf{n} $
-*   **Tangential Friction**: $ \Delta \mathbf{v}_t = -\min(\mu_f |\Delta \mathbf{v}_n|, |\mathbf{v}_{t,pt}|) \frac{\mathbf{v}_{t,pt}}{|\mathbf{v}_{t,pt}|} $
-    *   $\mathbf{v}_{t,pt}$ is the tangential velocity of the ball's **surface** at the contact point, including spin: $ \mathbf{v}_{pt} = \mathbf{v} + \mathbf{\omega} \times (-R\mathbf{n}) $.
+*   **Normal Reflection**: $\Delta \mathbf{v}_n = -(1 + e) (\mathbf{v} \cdot \mathbf{n}) \mathbf{n}$
+*   **Tangential Friction**: $\Delta \mathbf{v}_t = -\min(\mu_f |\Delta \mathbf{v}_n|, |\mathbf{v}_{t,pt}|) \frac{\mathbf{v}_{t,pt}}{|\mathbf{v}_{t,pt}|}$
+    *   $\mathbf{v}_{t,pt}$ is the tangential velocity of the ball's **surface** at the contact point, including spin: $\mathbf{v}_{pt} = \mathbf{v} + \mathbf{\omega} \times (-R\mathbf{n})$.
 
 #### Angular Momentum Update:
 Friction generates a torque that changes the ball's spin:
