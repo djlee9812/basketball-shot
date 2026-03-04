@@ -34,8 +34,8 @@ ball_m = 0.620 * kg2lb # Weight [lbm]
 ball_e1 = 0.84 # Coefficient of Restitution - Ground
 ball_e2 = 0.65 # Coefficient of Restitution - Backboard/rim
 mu_ground = 0.6 # Friction - Ground
-mu_bb = 0.2     # Friction - Backboard
-mu_rim = 0.3    # Friction - Rim
+mu_bb = 0.3     # Friction - Backboard
+mu_rim = 0.4    # Friction - Rim
 ball_cd1 = 0.5 # Coefficient of drag (low Re)
 ball_cd2 = 0.2 # Coefficient of drag (Drag crisis)
 alpha = 0.66   # Moment of inertia factor (I = alpha * m * r^2)

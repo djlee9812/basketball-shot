@@ -84,7 +84,7 @@ def run_analysis(nx, ny, save=False, plot=True):
     phis = np.linspace(37, 68, ny)
     # Dummy grids for initialization
     thetas = np.zeros((ny, nx))
-    omegas = 5 * np.ones((ny, nx))
+    omegas = 3 * np.ones((ny, nx))
     
     sim = VectorizedSimulator(speeds, phis, 6.0, thetas, omegas)
     

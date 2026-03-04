@@ -104,7 +104,7 @@ class Ball:
         import matplotlib.animation as animation
         
         x, y, z = self.states[:,0:3].T
-        fig = plt.figure(figsize=(12,6))
+        fig = plt.figure(figsize=(9,8))
         ax = fig.add_subplot(111, projection='3d')
         
         # Shooter position
@@ -168,7 +168,7 @@ class Ball:
         else:
             # Animation
             line, = ax.plot([], [], [], color="blue", alpha=0.7, lw=2)
-            ball_pt, = ax.plot([], [], [], "o", color="orange", markersize=10)
+            ball_pt, = ax.plot([], [], [], "o", color="orange", markersize=6)
             
             # Step size for animation (every 10 frames to speed up)
             step = 10
@@ -226,7 +226,7 @@ if __name__ == "__main__":
     parser.add_argument("-v", "--speed", type=float, default=26.0, help="Launch speed [ft/s]")
     parser.add_argument("-a", "--angle", type=float, default=56.0, help="Launch angle [deg]")
     parser.add_argument("-s", "--side", type=float, default=0.0, help="Deviation angle [deg]")
-    parser.add_argument("-w", "--spin", type=float, default=5.0, help="Backspin [rev/s]")
+    parser.add_argument("-w", "--spin", type=float, default=3.0, help="Backspin [rev/s]")
     parser.add_argument("--debug", action="store_true", help="Show physics plots")
     parser.add_argument("--animate", action="store_true", help="Animate trajectory")
     

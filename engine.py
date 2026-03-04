@@ -102,7 +102,18 @@ def apply_friction(v_cm, omg, n, e, mu_f):
     tan_dir[m] = v_tan_pt[m] / tan_mag[m][:, None]
     
     # Tangential Impulse (Friction)
-    dv_t = -np.minimum(mu_f * np.abs(np.linalg.norm(dv_n, axis=1)), tan_mag)[:, None] * tan_dir
+    # Effective mass factor
+    eff_mass_factor = 1.0 / (1.0 + 1.0/alpha)
+    
+    # Max linear velocity change to reach the no-slip condition
+    dv_t_max = (tan_mag * eff_mass_factor)[:, None] * tan_dir
+    
+    # Friction-limited linear velocity change (mu * |dv_normal|)
+    dv_t_fric = (mu_f * np.abs(np.linalg.norm(dv_n, axis=1)))[:, None] * tan_dir
+    
+    # Apply the smaller of friction or no-slip cap
+    dv_t = -np.where(np.linalg.norm(dv_t_fric, axis=1)[:, None] < np.linalg.norm(dv_t_max, axis=1)[:, None],
+                     dv_t_fric, dv_t_max)
     
     dv[mask_towards] = dv_n + dv_t
     # 4. Angular Momentum Change (Torque from friction)
